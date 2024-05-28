@@ -1,0 +1,10 @@
+services:
+
+  zenoh-router:
+    build: .
+    container_name: keelson-connector-lidar-os
+    restart: unless-stopped
+    network_mode: "host"
+    privileged: true
+    command: "-r rise --log-level 10"
+    

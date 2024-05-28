@@ -2,6 +2,24 @@
 
 Keelson connector for ouster lidar´s
 
+## How it works
+
+For now, this microservice jsut does the basics.
+
+Connects to an already configured Ouster sensor
+Listens on the continuous stream of LidarScanPackets
+
+## Quick start
+
+```bash
+python3 bin/main.py -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2
+```
+
+
+
+
+
+
 TODO: update doc
 
 Supported types:

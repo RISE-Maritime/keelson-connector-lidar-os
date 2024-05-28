@@ -3,6 +3,7 @@
 """
 Command line utility tool for reading lidar data from an Ouster sensor or a pcap file and pushing to keelson
 """
+import sys
 import time
 import json
 import atexit
@@ -14,9 +15,9 @@ from typing import cast, Iterator, Tuple, Optional, Dict
 
 import zenoh
 import numpy as np
-from ouster import client
-from ouster.client import _client
-from ouster.client.core import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
+from ouster.sdk import client
+from ouster.sdk.client import _client
+from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
 
 import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
@@ -25,6 +26,7 @@ from keelson.payloads.PackedElementField_pb2 import PackedElementField
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
+
 
 # We subclass client.Scans and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
@@ -76,7 +78,8 @@ class LidarPacketAndIMUPacketScans(client.Scans):
                 return
 
             if isinstance(packet, LidarPacket):
-                ls_write = ls_write or LidarScan(h, w, self._fields, columns_per_packet)
+                ls_write = ls_write or LidarScan(
+                    h, w, self._fields, columns_per_packet)
 
                 if batch(packet, ls_write):
                     # Got a new frame, return it and start another
@@ -89,7 +92,7 @@ class LidarPacketAndIMUPacketScans(client.Scans):
                     # Drop data along frame boundaries to maintain _max_latency and
                     # clear out already-batched first packet of next frame
                     if self._max_latency and sensor is not None:
-                        buf_frames = sensor.buf_use() // packets_per_frame
+                        buf_frames = sensor.buf_use // packets_per_frame
                         drop_frames = buf_frames - self._max_latency + 1
 
                         if drop_frames > 0:
@@ -105,9 +108,10 @@ class LidarPacketAndIMUPacketScans(client.Scans):
 
 
 def imu_data_to_imu_proto_payload(imu_data: dict):
+    print(imu_data)
     payload = ImuReading()
 
-    payload.timestamp.FromNanoseconds(imu_data["capture_timestamp"] * 1e9)
+    payload.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
 
     payload.linear_acceleration.x = imu_data["acceleration"][0]
     payload.linear_acceleration.y = imu_data["acceleration"][1]
@@ -123,17 +127,34 @@ def imu_data_to_imu_proto_payload(imu_data: dict):
 def lidarscan_to_pointcloud_proto_payload(
     lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
 ):
+
+    logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
+
     payload = PointCloud()
 
     payload.timestamp.FromNanoseconds(int(lidar_scan.timestamp[0]))
-
-    payload.frame_id = str(lidar_scan.frame_id)
+    if frame_id is not None:
+        payload.frame_id = frame_id
 
     # Destagger data
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
 
-    # Points as [[x, y, z], ...]
-    points = xyz_destaggered.reshape(-1, xyz_destaggered.shape[-1])
+    signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
+    reflectivity = client.destagger(info, lidar_scan.field(client.ChanField.REFLECTIVITY))
+    near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
+
+    # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
+    points = np.concatenate(
+        [
+            xyz_destaggered,
+            signal.reshape(list(signal.shape) + [1]),
+            reflectivity.reshape(list(reflectivity.shape) + [1]),
+            near_ir.reshape(list(near_ir.shape) + [1]),
+        ],
+        axis=-1
+    )
+    
+    points = xyz_destaggered.reshape(-1, points.shape[-1])
 
     # Zero relative position
     payload.pose.position.x = 0
@@ -150,6 +171,11 @@ def lidarscan_to_pointcloud_proto_payload(
     payload.fields.add(name="x", offset=0, type=PackedElementField.NumericType.FLOAT64)
     payload.fields.add(name="y", offset=8, type=PackedElementField.NumericType.FLOAT64)
     payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
+    
+    payload.fields.add(name="signal", offset=24, type=PackedElementField.NumericType.UINT16)
+    payload.fields.add(name="reflectivity", offset=26, type=PackedElementField.NumericType.UINT16)
+    payload.fields.add(name="near_ir", offset=28, type=PackedElementField.NumericType.UINT16)
+
 
     data = points.tobytes()
     payload.point_stride = len(data) // len(points)
@@ -204,31 +230,26 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         # Create a look-up table to cartesian projection
         xyz_lut = client.XYZLut(stream.metadata)
 
-        for imu_data, lidar_scan in scans:
+        for imu_data, lidar_scan in stream:
             if imu_data is not None:
                 payload = imu_data_to_imu_proto_payload(imu_data)
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
 
-                envelope = brefv.enclose(serialized_payload)
-                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
-
+                envelope = keelson.enclose(serialized_payload)
                 imu_publisher.put(envelope)
-                logging.info("...published to zenoh!")
+                logging.info("...published IMU to zenoh!")
 
             if lidar_scan is not None:
                 payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, xyz_lut, metadata, args.frame_id
+                    lidar_scan, xyz_lut, stream.metadata, args.frame_id
                 )
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
-
-                envelope = brefv.enclose(serialized_payload)
-                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
-
-                lidar_publisher.put(envelope)
+                envelope = keelson.enclose(serialized_payload)
+                point_cloud_publisher.put(envelope)
                 logging.info("...published to zenoh!")
 
 
@@ -284,7 +305,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
 
-                envelope = brefv.enclose(serialized_payload)
+                envelope = keelson.enclose(serialized_payload)
                 logging.debug("...enclosed into envelope, serialized as: %s", envelope)
 
                 imu_publisher.put(envelope)
@@ -296,7 +317,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
 
-                envelope = brefv.enclose(serialized_payload)
+                envelope = keelson.enclose(serialized_payload)
                 logging.debug("...enclosed into envelope, serialized as: %s", envelope)
 
                 lidar_publisher.put(envelope)

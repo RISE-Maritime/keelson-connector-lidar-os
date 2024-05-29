@@ -24,7 +24,9 @@ from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
 
-from bin.terminal_inputs import terminal_inputs
+from ouster.sdk import pcap
+
+import terminal_inputs 
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
@@ -335,7 +337,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
 
 if __name__ == "__main__":
 
-    args = terminal_inputs()
+    args = terminal_inputs.terminal_inputs()
 
     # Setup logger
     logging.basicConfig(

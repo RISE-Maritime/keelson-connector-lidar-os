@@ -10,7 +10,7 @@ Keelson connector for ouster lidar´s
 ## Quick start
 
 ```bash
-python3 bin/main.py -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2
+python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2
 ```
 
 

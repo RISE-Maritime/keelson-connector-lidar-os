@@ -4,10 +4,8 @@ Keelson connector for ouster lidar´s
 
 ## How it works
 
-For now, this microservice jsut does the basics.
-
-Connects to an already configured Ouster sensor
-Listens on the continuous stream of LidarScanPackets
+1) Connects to an already configured Ouster lidar tested with OS2 and OS1 
+2) Listens on the continuous stream of LidarScanPackets and IMU readsing
 
 ## Quick start
 
@@ -18,13 +16,8 @@ python3 bin/main.py -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sen
 
 
 
-
-
 TODO: update doc
 
-Supported types:
-- Sick picoScan150 Pro-1 (1134610)
-- Sick multiScan136 (1131164)
 
 ## [Sick picoScan150 Pro-1 (1134610)](https://www.sick.com/ag/en/catalog/products/lidar-and-radar-sensors/lidar-sensors/picoscan100/picoscan150-pro-1/p/p677850?tab=detail)
 

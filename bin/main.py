@@ -24,6 +24,8 @@ from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
 
+from bin.terminal_inputs import terminal_inputs
+
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
 
@@ -78,8 +80,7 @@ class LidarPacketAndIMUPacketScans(client.Scans):
                 return
 
             if isinstance(packet, LidarPacket):
-                ls_write = ls_write or LidarScan(
-                    h, w, self._fields, columns_per_packet)
+                ls_write = ls_write or LidarScan(h, w, self._fields, columns_per_packet)
 
                 if batch(packet, ls_write):
                     # Got a new frame, return it and start another
@@ -108,7 +109,7 @@ class LidarPacketAndIMUPacketScans(client.Scans):
 
 
 def imu_data_to_imu_proto_payload(imu_data: dict):
-    print(imu_data)
+
     payload = ImuReading()
 
     payload.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
@@ -124,9 +125,7 @@ def imu_data_to_imu_proto_payload(imu_data: dict):
     return payload
 
 
-def lidarscan_to_pointcloud_proto_payload(
-    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
-):
+def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id):
 
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
 
@@ -140,7 +139,9 @@ def lidarscan_to_pointcloud_proto_payload(
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
 
     signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
-    reflectivity = client.destagger(info, lidar_scan.field(client.ChanField.REFLECTIVITY))
+    reflectivity = client.destagger(
+        info, lidar_scan.field(client.ChanField.REFLECTIVITY)
+    )
     near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
@@ -151,9 +152,9 @@ def lidarscan_to_pointcloud_proto_payload(
             reflectivity.reshape(list(reflectivity.shape) + [1]),
             near_ir.reshape(list(near_ir.shape) + [1]),
         ],
-        axis=-1
+        axis=-1,
     )
-    
+
     points = xyz_destaggered.reshape(-1, points.shape[-1])
 
     # Zero relative position
@@ -171,11 +172,16 @@ def lidarscan_to_pointcloud_proto_payload(
     payload.fields.add(name="x", offset=0, type=PackedElementField.NumericType.FLOAT64)
     payload.fields.add(name="y", offset=8, type=PackedElementField.NumericType.FLOAT64)
     payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
-    
-    payload.fields.add(name="signal", offset=24, type=PackedElementField.NumericType.UINT16)
-    payload.fields.add(name="reflectivity", offset=26, type=PackedElementField.NumericType.UINT16)
-    payload.fields.add(name="near_ir", offset=28, type=PackedElementField.NumericType.UINT16)
 
+    payload.fields.add(
+        name="signal", offset=24, type=PackedElementField.NumericType.UINT16
+    )
+    payload.fields.add(
+        name="reflectivity", offset=26, type=PackedElementField.NumericType.UINT16
+    )
+    payload.fields.add(
+        name="near_ir", offset=28, type=PackedElementField.NumericType.UINT16
+    )
 
     data = points.tobytes()
     payload.point_stride = len(data) // len(points)
@@ -213,10 +219,13 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         priority=zenoh.Priority.INTERACTIVE_HIGH(),
         congestion_control=zenoh.CongestionControl.DROP(),
     )
+    
     logging.info("Connecting to Ouster sensor...")
 
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
+    
+    # TODO: send config data to keelson 
     logging.info("Sensor configuration: \n %s", config)
 
     logging.info("Processing packages!")
@@ -247,7 +256,6 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
                 )
 
                 serialized_payload = payload.SerializeToString()
-                logging.debug("...serialized.")
                 envelope = keelson.enclose(serialized_payload)
                 point_cloud_publisher.put(envelope)
                 logging.info("...published to zenoh!")
@@ -316,51 +324,18 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
-
                 envelope = keelson.enclose(serialized_payload)
-                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
-
-                lidar_publisher.put(envelope)
+                point_cloud_publisher.put(envelope)
                 logging.info("...published to zenoh!")
+                
 
     except ClientTimeout:
         logging.info("Timeout occurred while waiting for packets.")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        prog="ouster",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument("--log-level", type=int, default=logging.WARNING)
-    parser.add_argument(
-        "--connect",
-        action="append",
-        type=str,
-        help="Endpoints to connect to.",
-    )
 
-    parser.add_argument("-r", "--realm", type=str, required=True)
-    parser.add_argument("-e", "--entity-id", type=str, required=True)
-    parser.add_argument("-s", "--source-id", type=str, required=True)
-    parser.add_argument("-f", "--frame-id", type=str, default=None)
-
-    ## Subcommands
-    subparsers = parser.add_subparsers(required=True)
-
-    ## from_sensor subcommand
-    from_sensor_parser = subparsers.add_parser("from_sensor")
-    from_sensor_parser.add_argument("-o", "--ouster-hostname", type=str, required=True)
-    from_sensor_parser.set_defaults(func=from_sensor)
-
-    ## from_pcap subcommand
-    from_pcap_parser = subparsers.add_parser("from_pcap")
-    from_pcap_parser.add_argument("-p", "--pcap-file", type=str, required=True)
-    from_pcap_parser.add_argument("-m", "--metadata-file", type=str, required=True)
-    from_pcap_parser.set_defaults(func=from_pcap)
-
-    ## Parse arguments and start doing our thing
-    args = parser.parse_args()
+    args = terminal_inputs()
 
     # Setup logger
     logging.basicConfig(

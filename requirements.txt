@@ -1,6 +1,6 @@
 environs==11.0.0
 protobuf
-keelson==0.3.6-pre.5
+keelson==0.3.6-pre.8
 pyserial
 eclipse-zenoh==0.10.1-rc
 # ouster-sdk==0.10.0

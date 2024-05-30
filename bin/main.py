@@ -249,12 +249,11 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     ingress_timestamp = time.time_ns()
     payload = ConfigurationSensorPerception()
     ConfigurationSensorPerception.SensorType.Value("LIDAR")
+    ConfigurationSensorPerception.SensorType.Value(config.operating_mode)
     payload.timestamp.FromNanoseconds(ingress_timestamp)
-    payload.mode_operating = config.operating_mode
     payload.other_json = json.dumps(config)
 
     horizontal = (config.beam_azimuth_angles[0] - config.beam_azimuth_angles[1])/1000
-   
     payload.view_horizontal_angel_deg = horizontal
     payload.view_vertical_angel_deg = config.beam_azimuth_angles
 
@@ -262,7 +261,6 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     serialized_payload = payload.SerializeToString()
     envelope = keelson.enclose(serialized_payload)
     publisher_config.put()
-
 
     logging.info("Processing packages!")
 

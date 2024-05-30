@@ -76,8 +76,6 @@ def terminal_inputs():
         help="Start angle in degrees from 0 to 360, needs to be larger then start angle",
     )
 
-    
-
     from_sensor_parser.add_argument(
         "--lidar-mode",
         type=str,

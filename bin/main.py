@@ -254,7 +254,6 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     horizontal = (config.azimuth_window[0] - config.azimuth_window[1])/1000
     payload.view_horizontal_angel_deg = horizontal
-    payload.view_vertical_angel_deg = config.beam_azimuth_angles
 
     logging.info("Sensor configuration: \n %s", payload)
     serialized_payload = payload.SerializeToString()

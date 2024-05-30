@@ -252,7 +252,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(str(config))
 
-    horizontal = (config.beam_azimuth_angles[0] - config.beam_azimuth_angles[1])/1000
+    horizontal = (config.azimuth_window[0] - config.azimuth_window[1])/1000
     payload.view_horizontal_angel_deg = horizontal
     payload.view_vertical_angel_deg = config.beam_azimuth_angles
 

@@ -244,6 +244,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     config = client.get_config(args.ouster_hostname)
     
     # TODO: send config data to keelson 
+    logging.info("Sensor configuration: \n %s", type(config))
+    logging.info("Sensor configuration: \n %s", json.dumps(config))
     logging.info("Sensor configuration: \n %s", config)
 
     ingress_timestamp = time.time_ns()

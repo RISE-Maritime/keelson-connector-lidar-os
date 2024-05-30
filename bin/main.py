@@ -240,8 +240,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()
     apply_config.azimuth_window = (0, 36000)
-    apply_config.lidar_mode = client.LidarMode.from_string("MODE_512x10")
-    apply_config.operating_mode = client.OperatingMode.from_string("NORMAL")
+    apply_config.lidar_mode = client.LidarMode.from_string("512x10")
+    apply_config.operating_mode = client.OperatingMode.from_string("MODE_NORMAL")
     client.set_config(args.ouster_hostname, apply_config, persist=True)
     
     

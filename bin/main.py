@@ -245,13 +245,14 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     
     # TODO: send config data to keelson 
     logging.info("Sensor configuration: \n %s", type(config))
-    logging.info("Sensor configuration: \n %s", json.dumps(config))
+    logging.info("Sensor configuration: \n %s", json.dumps(str(config)))
     logging.info("Sensor configuration: \n %s", config)
 
     ingress_timestamp = time.time_ns()
     payload = ConfigurationSensorPerception()
     ConfigurationSensorPerception.SensorType.Value("LIDAR")
-    ConfigurationSensorPerception.mode_operating.Value(config["operating_mode"])
+    ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
+    payload.mode = config.lidar_mode
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(config)
 

@@ -258,7 +258,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     logging.info("Sensor configuration: \n %s", payload)
     serialized_payload = payload.SerializeToString()
     envelope = keelson.enclose(serialized_payload)
-    publisher_config.put()
+    publisher_config.put(envelope)
 
     logging.info("Processing packages!")
 

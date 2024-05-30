@@ -243,16 +243,13 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
     
-    # TODO: send config data to keelson 
-    logging.info("Sensor configuration: \n %s", dir(config))
-    logging.info("Sensor configuration: \n %s", json.dumps(str(config)))
     logging.info("Sensor configuration: \n %s", config)
 
     ingress_timestamp = time.time_ns()
     payload = ConfigurationSensorPerception()
     ConfigurationSensorPerception.SensorType.Value("LIDAR")
     ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
-    payload.mode = config.lidar_mode
+    payload.mode = config.lidar_mode.name
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(config)
 

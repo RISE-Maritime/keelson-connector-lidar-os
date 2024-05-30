@@ -17,7 +17,7 @@ Check device web server on devise IP address ex. [10.10.42.2](https://10.10.42.2
 
 ```bash
 # Unit IP 10.10.42.2 and log level debug=10
-python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2
+python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2 --view-angle-deg-start 0 --view-angle-deg-end 360 --lidar-mode 1024x10 
 ```
 
 Tested units:

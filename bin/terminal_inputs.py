@@ -60,6 +60,33 @@ def terminal_inputs():
 
     from_sensor_parser.add_argument("-o", "--ouster-hostname", type=str, required=True)
 
+    from_sensor_parser.add_argument(
+        "--view-angle-deg-start",
+        type=int,
+        required=True,
+        default=0,
+        help="Start angle in degrees from 0 to 360, needs to be smaller then end angle",
+    )
+
+    from_sensor_parser.add_argument(
+        "--view-angle-deg-end",
+        type=int,
+        required=True,
+        default=360,
+        help="Start angle in degrees from 0 to 360, needs to be larger then start angle",
+    )
+
+    
+
+    from_sensor_parser.add_argument(
+        "--lidar-mode",
+        type=str,
+        default="1024x10",
+        choices=["512x10", "512x20", "1024x10", "1024x20", "2048x10", "4096x5"],
+        required=True,
+        help="Lidar mode scan (columns(x)frequency)",
+    )
+
     from_sensor_parser.set_defaults(func=from_sensor)
 
     ## from_pcap subcommand

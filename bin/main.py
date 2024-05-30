@@ -23,6 +23,7 @@ import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
+from keelson.payloads.ConfigurationSensorPerception_pb2 import ConfigurationSensorPerception
 
 from ouster.sdk import pcap
 
@@ -30,7 +31,7 @@ import terminal_inputs
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
-
+KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
 
 # We subclass client.Scans and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
@@ -207,8 +208,16 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         source_id=args.source_id,
     )
 
+    config_key = keelson.construct_pub_sub_key(
+        realm=args.realm,
+        entity_id=args.entity_id,
+        subject=KEELSON_SUBJECT_CONFIG,
+        source_id=args.source_id,
+    )
+
     logging.info("IMU key: %s", imu_key)
     logging.info("PointCloud key: %s", point_cloud_key)
+    logging.info("Config key: %s", config_key)
 
     imu_publisher = session.declare_publisher(
         imu_key,
@@ -221,6 +230,13 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         priority=zenoh.Priority.INTERACTIVE_HIGH(),
         congestion_control=zenoh.CongestionControl.DROP(),
     )
+
+    publisher_config = session.declare_publisher(
+        config_key,
+        priority=zenoh.Priority.INTERACTIVE_HIGH(),
+        congestion_control=zenoh.CongestionControl.DROP(),
+    )
+    
     
     logging.info("Connecting to Ouster sensor...")
 
@@ -229,6 +245,24 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     
     # TODO: send config data to keelson 
     logging.info("Sensor configuration: \n %s", config)
+
+    ingress_timestamp = time.time_ns()
+    payload = ConfigurationSensorPerception()
+    payload.SensorType = ConfigurationSensorPerception.SensorType.LIDAR
+    payload.timestamp.FromNanoseconds(ingress_timestamp)
+    payload.mode_operating = config.operating_mode
+    payload.other_json = json.dumps(config)
+
+    horizontal = (config.beam_azimuth_angles[0] - config.beam_azimuth_angles[1])/1000
+   
+    payload.view_horizontal_angel_deg = horizontal
+    payload.view_vertical_angel_deg = config.beam_azimuth_angles
+
+    logging.info("Sensor configuration: \n %s", payload)
+    serialized_payload = payload.SerializeToString()
+    envelope = keelson.enclose(serialized_payload)
+    publisher_config.put()
+
 
     logging.info("Processing packages!")
 

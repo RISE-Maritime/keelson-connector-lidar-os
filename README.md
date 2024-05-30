@@ -1,94 +1,34 @@
-# Keelson Connector Lidar Ouster 
+# Keelson Connector Lidar Ouster
 
-Keelson connector for ouster lidar´s
+Keelson connector for Ouster lidar´s
+
 
 ## How it works
 
-1) Connects to an already configured Ouster lidar tested with OS2 and OS1 
-2) Listens on the continuous stream of LidarScanPackets and IMU readsing
+1) Connects to Ouster lidar with Python SDK
+2) Applying configuration and setting lidar in mode NORMAL
+3) Listens on the continuous UDP stream of LidarScanPackets and IMU readsing
+4) Publishing IMU, Scans and Configuration setup to Keelson
+5) Queryable available to send configuration changes to unit 
 
 ## Quick start
 
+Check device web server on devise IP address ex. [10.10.42.2](https://10.10.42.2) 
+
 ```bash
+# Unit IP 10.10.42.2 and log level debug=10
 python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2
 ```
 
+Tested units:
 
+- OS2 Rev D
 
+## Information sources
 
-TODO: update doc
+[Ouster Downloads & Manuals](https://ouster.com/downloads)
 
-
-## [Sick picoScan150 Pro-1 (1134610)](https://www.sick.com/ag/en/catalog/products/lidar-and-radar-sensors/lidar-sensors/picoscan100/picoscan150-pro-1/p/p677850?tab=detail)
-
-### Features
-
-- Light source: Infrared (905 nm)
-- Horizontal: 276°
-- Scanning frequency: 15 Hz, 20 Hz, 25 Hz, 30 Hz, 40 Hz & 50 Hz
-- Angular resolution: 0.05°, 0.1°, 0.125°, 0.25°, 0.33° & 0.5°
-- Scan field flatness: ± 1°
-- Working range: 0.05 m --> 120 m
-- Weight: 0.394 Kilograms
-
-### Technical
-
-- Supply voltage: 9-30V DC
-- Power consumption: Typ. 4.5W max 17W
-- Output current:	≤ 200 mA
-
-### Performance
-
-- Data output per scan segment: Segment size 30° at ≤ 25 Hz, Segment size 60° at ≥ 30 Hz
-- Scan/frame rate: 12,546 measurement point/s ... 264,963 measurement point/s, Depends on the Dynamic Sensing Profile and number of echoes
-
-
-[Dimensional drawing](https://www.sick.com/ag/en/catalog/products/lidar-and-radar-sensors/lidar-sensors/picoscan100/picoscan150-pro-1/p/p677850?tab=detail)
-
-[Working range diagram](https://www.sick.com/ag/en/catalog/products/lidar-and-radar-sensors/lidar-sensors/picoscan100/picoscan150-pro-1/p/p677850?tab=detail)
-
-[Operating Manual](https://cdn.sick.com/media/docs/1/91/691/operating_instructions_picoscan150_2d_lidar_sensors_en_im0106691.pdf)
-
-### Device Configuration
-
-Default Account: Service
-Default Password: servicelevel
-
-- IP: 10.10.30.2 (Open in web browser for Sick UI and config)
-- Measurement output: 
-  - Format: **Compact** | MSGPACK | MSGPACK
-  - IP: 10.10.30.3
-  - Port: 2115
-- IMU output:
-  - IP: 10.10.30.4
-  - Port: 7503
-
-### Scan Configuration
-
-- 20Hz % 0.1°
-- Range: 45m
-- Sensitivity: Medium
-
-Keelson processor for creating an realtime panorama image based on multiple camera sensors
-
-
-
-# GIT REPOS
-
-https://github.com/SICKAG/ScanSegmentDecoding
-
-https://github.com/SICKAG/ScanSegmentAPI
-
-
-https://github.com/SICKAG/sick_scan_rest_client 
-
-## Quick start
-
-```bash
-python3 bin/main.py --log-level 10 -e boatswain --trigger-sub rise/v0/boatswain/pubsub/compressed_image/axis-1 --camera-query rise/v0/boatswain/pubsub/compressed_image/*
-```
-
-
+## Setup for development
 
 Setup for development environment on your own computer: 
 

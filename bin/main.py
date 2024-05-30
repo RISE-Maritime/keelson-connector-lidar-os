@@ -243,7 +243,6 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
     
-    logging.info("Sensor configuration: \n %s", config)
 
     ingress_timestamp = time.time_ns()
     payload = ConfigurationSensorPerception()
@@ -251,7 +250,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
     payload.mode = config.lidar_mode.name
     payload.timestamp.FromNanoseconds(ingress_timestamp)
-    payload.other_json = json.dumps(config)
+    payload.other_json = json.dumps(str(config))
 
     horizontal = (config.beam_azimuth_angles[0] - config.beam_azimuth_angles[1])/1000
     payload.view_horizontal_angel_deg = horizontal

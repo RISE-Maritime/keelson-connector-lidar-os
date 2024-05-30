@@ -248,7 +248,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     ingress_timestamp = time.time_ns()
     payload = ConfigurationSensorPerception()
-    payload.SensorType = ConfigurationSensorPerception.SensorType.Value("LIDAR")
+    ConfigurationSensorPerception.SensorType.Value("LIDAR")
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.mode_operating = config.operating_mode
     payload.other_json = json.dumps(config)

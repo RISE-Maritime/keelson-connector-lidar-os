@@ -193,6 +193,13 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
 
     return payload
 
+def sensor_config(query: zenoh.Queryable):
+
+    print(f">> [Queryable ] Received Query '{query.selector}'" + (f" with value: {query.value.payload}" if query.value is not None else ""))
+    
+    query.replay(zenoh.Sample("key", b"response"))
+
+
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     point_cloud_key = keelson.construct_pub_sub_key(
@@ -216,9 +223,17 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         source_id=args.source_id,
     )
 
-    logging.info("IMU key: %s", imu_key)
-    logging.info("PointCloud key: %s", point_cloud_key)
-    logging.info("Config key: %s", config_key)
+    query_config_key = keelson.construct_req_rep_key(
+        realm=args.realm,
+        entity_id=args.entity_id,
+        responder_id=args.source_id,
+        procedure="sensor_config",
+    )
+
+    logging.info("PUB key: %s", imu_key)
+    logging.info("PUB key: %s", point_cloud_key)
+    logging.info("PUB key: %s", config_key)
+    logging.info("Query key: %s", query_config_key)
 
     imu_publisher = session.declare_publisher(
         imu_key,
@@ -237,6 +252,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         priority=zenoh.Priority.INTERACTIVE_HIGH(),
         congestion_control=zenoh.CongestionControl.DROP(),
     )
+
+    query_get_config = session.declare_queryable(query_config_key, sensor_config)
 
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()

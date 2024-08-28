@@ -1,6 +1,6 @@
 services:
 
-  zenoh-router:
+  keelson-connector-lidar-os:
     build: .
     container_name: keelson-connector-lidar-os
     restart: unless-stopped

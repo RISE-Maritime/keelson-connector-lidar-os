@@ -6,5 +6,5 @@ services:
     restart: unless-stopped
     network_mode: "host"
     privileged: true
-    command: "-r rise --log-level 10"
+    command: "-r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2 --view-angle-deg-start 0 --view-angle-deg-end 360 --lidar-mode 1024x10 "
     

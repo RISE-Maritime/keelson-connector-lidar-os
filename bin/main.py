@@ -152,8 +152,8 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     points = np.concatenate(
         [
             xyz_destaggered,
-            signal,
-            # signal.reshape(list(signal.shape) + [1]),
+            # signal,
+            signal.reshape(list(signal.shape) + [1]),
             reflectivity.reshape(list(reflectivity.shape) + [1]),
             near_ir.reshape(list(near_ir.shape) + [1]),
         ],

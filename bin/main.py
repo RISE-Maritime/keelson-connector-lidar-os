@@ -142,8 +142,7 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
 
     signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
-    logging.debug("Signal shape: %s", signal.shape)
-    logging.debug("Signal: %s", signal)
+    
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
@@ -153,7 +152,8 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     points = np.concatenate(
         [
             xyz_destaggered,
-            signal.reshape(list(signal.shape) + [1]),
+            signal,
+            # signal.reshape(list(signal.shape) + [1]),
             reflectivity.reshape(list(reflectivity.shape) + [1]),
             near_ir.reshape(list(near_ir.shape) + [1]),
         ],
@@ -177,6 +177,16 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     payload.fields.add(name="x", offset=0, type=PackedElementField.NumericType.FLOAT64)
     payload.fields.add(name="y", offset=8, type=PackedElementField.NumericType.FLOAT64)
     payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
+
+    #     payload.fields.add(
+    #     name="signal", offset=24, type=PackedElementField.NumericType.UINT16
+    # )
+    # payload.fields.add(
+    #     name="reflectivity", offset=26, type=PackedElementField.NumericType.UINT16
+    # )
+    # payload.fields.add(
+    #     name="near_ir", offset=28, type=PackedElementField.NumericType.UINT16
+    # )
 
     payload.fields.add(
         name="signal", offset=24, type=PackedElementField.NumericType.FLOAT64

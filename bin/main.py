@@ -142,7 +142,8 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
 
     signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
-    
+    logging.debug("Signal shape: %s", signal.shape)
+    logging.debug("Signal: %s", signal)
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )

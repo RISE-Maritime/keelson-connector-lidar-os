@@ -178,13 +178,13 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
 
     payload.fields.add(
-        name="signal", offset=24, type=PackedElementField.NumericType.UINT16
+        name="signal", offset=24, type=PackedElementField.NumericType.FLOAT64
     )
     payload.fields.add(
-        name="reflectivity", offset=26, type=PackedElementField.NumericType.UINT16
+        name="reflectivity", offset=32, type=PackedElementField.NumericType.FLOAT64
     )
     payload.fields.add(
-        name="near_ir", offset=28, type=PackedElementField.NumericType.UINT16
+        name="near_ir", offset=40, type=PackedElementField.NumericType.FLOAT64
     )
 
     data = points.tobytes()

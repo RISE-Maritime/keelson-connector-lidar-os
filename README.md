@@ -47,6 +47,13 @@ Setup for development environment on your own computer:
 
     # Start container and let it run in the background/detached (append -d) 
     docker-compose -f containing docker-compose.zenoh-router.yml up -d
+
+
+    # New OS pip 0.3.0 
+    sudo apt-get update
+
+   sudo apt-get install libgl1-mesa-glx
+
    ```
 
     [Link to --> docker-compose.zenoh-router.yml](docker-compose.zenoh-router.yml)

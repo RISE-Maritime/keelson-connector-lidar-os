@@ -16,7 +16,6 @@ from typing import cast, Iterator, Tuple, Optional, Dict
 import zenoh
 import numpy as np
 from ouster.sdk import client
-from ouster.sdk.client import _client
 from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
 
 import keelson
@@ -33,9 +32,14 @@ KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
 KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
 
-# We subclass client.Scans and provide our own iterator interface
+# We subclass client.ScansMulti and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
-class LidarPacketAndIMUPacketScans(client.Scans):
+class LidarPacketAndIMUPacketScans():
+
+    def __init__(self, source):
+        self._source = client.ScansMulti(source).single_source(0)
+
+    
     def __iter__(
         self,
     ) -> Iterator[Tuple[Optional[Dict[str, np.ndarray]], Optional[LidarScan]]]:
@@ -54,8 +58,8 @@ class LidarPacketAndIMUPacketScans(client.Scans):
         )
 
         ls_write = None
-        pf = _client.PacketFormat.from_info(self._source.metadata)
-        batch = _client.ScanBatcher(w, pf)
+        pf = client.PacketFormat.from_info(self._source.metadata)
+        batch = client.ScanBatcher(w, pf)
 
         # Time from which to measure timeout
         start_ts = time.monotonic()
@@ -101,7 +105,7 @@ class LidarPacketAndIMUPacketScans(client.Scans):
 
                         if drop_frames > 0:
                             sensor.flush(drop_frames)
-                            batch = _client.ScanBatcher(w, pf)
+                            batch = client.ScanBatcher(w, pf)
 
             elif isinstance(packet, ImuPacket):
                 yield {
@@ -305,11 +309,23 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     logging.info("Processing packages!")
 
     # Connecting to Ouster sensor
-    with closing(
-        LidarPacketAndIMUPacketScans.stream(
-            args.ouster_hostname, config.udp_port_lidar, complete=True
-        )
-    ) as stream:
+
+    # with closing(client.SensorScanSource(hostname, lidar_port=lidar_port,
+    #                                  complete=False)) as stream:
+    config_os = client.SensorConfig()
+    config_os.udp_port_lidar = 7502
+    config_os.udp_port_imu = 7503
+        
+    with closing(client.SensorPacketSource([(args.ouster_hostname, config_os)],
+                           buf_size=640).single_source(0)) as stream:
+        
+    # OLD    
+    # with closing(
+    #     LidarPacketAndIMUPacketScans.stream(
+    #         args.ouster_hostname, config.udp_port_lidar, complete=True
+    #     )
+    # ) as stream:
+
         # Create a look-up table to cartesian projection
         xyz_lut = client.XYZLut(stream.metadata)
 

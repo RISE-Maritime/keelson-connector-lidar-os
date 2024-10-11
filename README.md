@@ -70,3 +70,33 @@ Setup for development environment on your own computer:
 
 [Zenoh CLI for debugging and problem solving](https://github.com/RISE-Maritime/zenoh-cli)
 
+
+
+
+python3 test.py os-992109000253 record-pcap
+
+
+Ubuntu UFW Firewall may cause: No packets received within 1.0s
+
+On some Ubuntu setups we’ve observed the situations when everything is configured properly so that:
+
+sensor is seen on the network and its Web page can be reached
+
+sensor destination IP is set to the IP of the computer where data is expected
+
+sensor lidar port is known (i.e. default 7502, or some others)
+
+sensor is in RUNNING state
+
+sensor lidar packets traffic is seen on the expected machine and can be recorded with tcpdump -w command to a pcap file (or Wireshark tools)
+
+CLI command ouster-cli source <SENSOR HOSTNAME> {info,config} are working properly
+
+Viz ouster-cli source <PCAP FILE> viz from the tcpdump recorded pcap can be played and visualized
+
+But ouster-cli source <SENSOR HOSTNAME> viz, or ouster-cli source <SENSOR HOSTNAME> save still can’t receive any packets and get the following error:
+
+ouster.client.core.ClientTimeout: No packets received within 1.0s
+Please check your UFW Firewall settings and try to allow the UDP traffic for 7502 (or whatever the UDP Port Lidar is set on the sensor):
+
+sudo ufw allow 7502/udp

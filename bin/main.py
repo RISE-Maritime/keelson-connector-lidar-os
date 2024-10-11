@@ -15,8 +15,9 @@ from typing import cast, Iterator, Tuple, Optional, Dict
 
 import zenoh
 import numpy as np
-from ouster.sdk import client
-from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
+from ouster.sdk import client, sensor
+from ouster.sdk.client import LidarMode
+
 
 import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
@@ -26,7 +27,7 @@ from keelson.payloads.ConfigurationSensorPerception_pb2 import ConfigurationSens
 
 from ouster.sdk import pcap
 
-import terminal_inputs 
+import terminal_inputs
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
@@ -34,12 +35,13 @@ KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
 
 # We subclass client.ScansMulti and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
+
+
 class LidarPacketAndIMUPacketScans():
 
     def __init__(self, source):
         self._source = client.ScansMulti(source).single_source(0)
 
-    
     def __iter__(
         self,
     ) -> Iterator[Tuple[Optional[Dict[str, np.ndarray]], Optional[LidarScan]]]:
@@ -54,7 +56,8 @@ class LidarPacketAndIMUPacketScans():
 
         # If source is a sensor, make a type-specialized reference available
         sensor = (
-            cast(Sensor, self._source) if isinstance(self._source, Sensor) else None
+            cast(Sensor, self._source) if isinstance(
+                self._source, Sensor) else None
         )
 
         ls_write = None
@@ -87,7 +90,8 @@ class LidarPacketAndIMUPacketScans():
                 return
 
             if isinstance(packet, LidarPacket):
-                ls_write = ls_write or LidarScan(h, w, self._fields, columns_per_packet)
+                ls_write = ls_write or LidarScan(
+                    h, w, self._fields, columns_per_packet)
 
                 if batch(packet, ls_write):
                     # Got a new frame, return it and start another
@@ -146,11 +150,12 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
 
     signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
-    
+
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
-    near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
+    near_ir = client.destagger(
+        info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
     points = np.concatenate(
@@ -178,9 +183,12 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     payload.pose.orientation.w = 1
 
     # Fields
-    payload.fields.add(name="x", offset=0, type=PackedElementField.NumericType.FLOAT64)
-    payload.fields.add(name="y", offset=8, type=PackedElementField.NumericType.FLOAT64)
-    payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="x", offset=0,
+                       type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="y", offset=8,
+                       type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="z", offset=16,
+                       type=PackedElementField.NumericType.FLOAT64)
 
     # payload.fields.add(
     #     name="signal", offset=24, type=PackedElementField.NumericType.UINT16
@@ -208,12 +216,13 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
 
     return payload
 
+
 def sensor_config(query: zenoh.Queryable):
 
-    print(f">> [Queryable ] Received Query '{query.selector}'" + (f" with value: {query.value.payload}" if query.value is not None else ""))
-    
-    query.replay(zenoh.Sample("key", b"response"))
+    print(f">> [Queryable ] Received Query '{query.selector}'" + (
+        f" with value: {query.value.payload}" if query.value is not None else ""))
 
+    query.replay(zenoh.Sample("key", b"response"))
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
@@ -268,21 +277,21 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         congestion_control=zenoh.CongestionControl.DROP(),
     )
 
-    query_get_config = session.declare_queryable(query_config_key, sensor_config)
+    query_get_config = session.declare_queryable(
+        query_config_key, sensor_config)
 
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()
     apply_config.azimuth_window = (args.view_angle_deg_start*1000, args.view_angle_deg_end*1000)
     apply_config.lidar_mode = client.LidarMode.from_string(args.lidar_mode)
-    apply_config.operating_mode = client.OperatingMode.from_string("NORMAL") # Always set to normal mode to start up the lidar
-    client.set_config(args.ouster_hostname, apply_config, persist=True)
-    
-    
+    apply_config.operating_mode = client.OperatingMode.from_string("NORMAL")  # Always set to normal mode to start up the lidar
+    client.set_config(args.ouster_hostname, apply_config, persist=True, udp_dest_auto=False)
+
     logging.info("Connecting to Ouster sensor...")
 
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
-    
+
     logging.info(f"Sensor configuration:{config}")
 
     ingress_timestamp = time.time_ns()
@@ -291,7 +300,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     if str(config.operating_mode.name) == "NORMAL":
         ConfigurationSensorPerception.mode_operating.Value("RUNNING")
     else:
-        ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
+        ConfigurationSensorPerception.mode_operating.Value(
+            config.operating_mode.name)
     payload.mode = config.lidar_mode.name
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(str(config))
@@ -315,16 +325,16 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     config_os = client.SensorConfig()
     config_os.udp_port_lidar = 7502
     config_os.udp_port_imu = 7503
-        
+
     with closing(client.SensorPacketSource([(args.ouster_hostname, config_os)],
-                           buf_size=640).single_source(0)) as stream:
-        
-    # OLD    
-    # with closing(
-    #     LidarPacketAndIMUPacketScans.stream(
-    #         args.ouster_hostname, config.udp_port_lidar, complete=True
-    #     )
-    # ) as stream:
+                                           buf_size=640).single_source(0)) as stream:
+
+        # OLD
+        # with closing(
+        #     LidarPacketAndIMUPacketScans.stream(
+        #         args.ouster_hostname, config.udp_port_lidar, complete=True
+        #     )
+        # ) as stream:
 
         # Create a look-up table to cartesian projection
         xyz_lut = client.XYZLut(stream.metadata)
@@ -404,20 +414,21 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 logging.debug("...serialized.")
 
                 envelope = keelson.enclose(serialized_payload)
-                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
+                logging.debug(
+                    "...enclosed into envelope, serialized as: %s", envelope)
 
                 imu_publisher.put(envelope)
                 logging.info("...published to zenoh!")
 
             elif lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(lidar_scan, metadata)
+                payload = lidarscan_to_pointcloud_proto_payload(
+                    lidar_scan, metadata)
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
                 envelope = keelson.enclose(serialized_payload)
                 point_cloud_publisher.put(envelope)
                 logging.info("...published to zenoh!")
-                
 
     except ClientTimeout:
         logging.info("Timeout occurred while waiting for packets.")
@@ -434,7 +445,7 @@ if __name__ == "__main__":
     logging.captureWarnings(True)
     warnings.filterwarnings("once")
 
-    ## Construct session
+    # Construct session
     logging.info("Opening Zenoh session...")
     conf = zenoh.Config()
 

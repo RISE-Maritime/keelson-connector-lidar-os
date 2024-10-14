@@ -23,15 +23,20 @@ import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
-from keelson.payloads.ConfigurationSensorPerception_pb2 import ConfigurationSensorPerception
+from keelson.payloads.ConfigurationSensorPerception_pb2 import (
+    ConfigurationSensorPerception,
+)
 
 from ouster.sdk import pcap
 
-import terminal_inputs 
+import terminal_inputs
+
+import cv2
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
 KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
+
 
 # We subclass client.Scans and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
@@ -128,7 +133,9 @@ def imu_data_to_imu_proto_payload(imu_data: dict):
     return payload
 
 
-def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id):
+def lidarscan_to_pointcloud_proto_payload(
+    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
+):
 
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
 
@@ -142,10 +149,24 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
 
     signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
-    
+
+    logging.debug("Signal shape: %s", signal.shape)
+    logging.debug("Signal type: %s", signal.dtype)  # uint16
+    logging.debug("Signal: %s", signal)
+
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
+
+    # Image displays correctly 
+    # reflectivity = (reflectivity / np.max(reflectivity) * 255).astype(np.uint8)
+    # cv2.imshow("scaled reflectivity", reflectivity)
+    # key = cv2.waitKey(1) & 0xFF
+
+    logging.debug("Reflectivity shape: %s", reflectivity.shape)
+    logging.debug("reflectivity type: %s", reflectivity.dtype)  # uint16
+    logging.debug("reflectivity: %s", reflectivity)
+
     near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
@@ -160,7 +181,10 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
         axis=-1,
     )
 
-    points = xyz_destaggered.reshape(-1, points.shape[-1])
+    # points = xyz_destaggered.reshape(-1, points.shape[-1])
+    points = points.reshape(-1, points.shape[-1])
+
+    logging.debug("Points shape: %s", points)
 
     # Zero relative position
     payload.pose.position.x = 0
@@ -204,12 +228,15 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
 
     return payload
 
+
 def sensor_config(query: zenoh.Queryable):
 
-    print(f">> [Queryable ] Received Query '{query.selector}'" + (f" with value: {query.value.payload}" if query.value is not None else ""))
-    
-    query.replay(zenoh.Sample("key", b"response"))
+    print(
+        f">> [Queryable ] Received Query '{query.selector}'"
+        + (f" with value: {query.value.payload}" if query.value is not None else "")
+    )
 
+    query.reply(zenoh.Sample("key", b"response"))
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
@@ -268,17 +295,21 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()
-    apply_config.azimuth_window = (args.view_angle_deg_start*1000, args.view_angle_deg_end*1000)
+    apply_config.azimuth_window = (
+        args.view_angle_deg_start * 1000,
+        args.view_angle_deg_end * 1000,
+    )
     apply_config.lidar_mode = client.LidarMode.from_string(args.lidar_mode)
-    apply_config.operating_mode = client.OperatingMode.from_string("NORMAL") # Always set to normal mode to start up the lidar
+    apply_config.operating_mode = client.OperatingMode.from_string(
+        "NORMAL"
+    )  # Always set to normal mode to start up the lidar
     client.set_config(args.ouster_hostname, apply_config, persist=True)
-    
-    
+
     logging.info("Connecting to Ouster sensor...")
 
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
-    
+
     logging.info(f"Sensor configuration:{config}")
 
     ingress_timestamp = time.time_ns()
@@ -292,7 +323,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(str(config))
 
-    horizontal = (config.azimuth_window[1] - config.azimuth_window[0])/1000
+    horizontal = (config.azimuth_window[1] - config.azimuth_window[0]) / 1000
     payload.view_horizontal_angel_deg = horizontal
     payload.view_horizontal_start_angel_deg = config.azimuth_window[0]
     payload.view_horizontal_end_angel_deg = config.azimuth_window[1]
@@ -401,7 +432,6 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 envelope = keelson.enclose(serialized_payload)
                 point_cloud_publisher.put(envelope)
                 logging.info("...published to zenoh!")
-                
 
     except ClientTimeout:
         logging.info("Timeout occurred while waiting for packets.")

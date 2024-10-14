@@ -73,7 +73,7 @@ Setup for development environment on your own computer:
 
 
 
-python3 test.py os-992109000253 record-pcap
+python3 experiments/test.py os-992109000253.local record-pcap
 
 
 Ubuntu UFW Firewall may cause: No packets received within 1.0s

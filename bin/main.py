@@ -15,17 +15,27 @@ from typing import cast, Iterator, Tuple, Optional, Dict
 
 import zenoh
 import numpy as np
-from ouster.sdk import client, sensor
-from ouster.sdk.client import LidarMode
 
+from ouster.sdk import client, sensor
+from ouster.sdk.client import (
+    LidarMode,
+    ClientTimeout,
+    LidarPacket,
+    ImuPacket,
+    LidarScan,
+)
+import ouster.sdk.pcap as pcap
+from ouster.sdk import open_source
+from more_itertools import time_limited
 
 import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
-from keelson.payloads.ConfigurationSensorPerception_pb2 import ConfigurationSensorPerception
+from keelson.payloads.ConfigurationSensorPerception_pb2 import (
+    ConfigurationSensorPerception,
+)
 
-from ouster.sdk import pcap
 
 import terminal_inputs
 
@@ -37,11 +47,7 @@ KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
 
 
-class LidarPacketAndIMUPacketScans():
-
-    def __init__(self, source):
-        self._source = client.ScansMulti(source).single_source(0)
-
+class LidarPacketAndIMUPacketScans(client.Scans):
     def __iter__(
         self,
     ) -> Iterator[Tuple[Optional[Dict[str, np.ndarray]], Optional[LidarScan]]]:
@@ -56,8 +62,7 @@ class LidarPacketAndIMUPacketScans():
 
         # If source is a sensor, make a type-specialized reference available
         sensor = (
-            cast(Sensor, self._source) if isinstance(
-                self._source, Sensor) else None
+            cast(Sensor, self._source) if isinstance(self._source, Sensor) else None
         )
 
         ls_write = None
@@ -90,8 +95,7 @@ class LidarPacketAndIMUPacketScans():
                 return
 
             if isinstance(packet, LidarPacket):
-                ls_write = ls_write or LidarScan(
-                    h, w, self._fields, columns_per_packet)
+                ls_write = ls_write or LidarScan(h, w, self._fields, columns_per_packet)
 
                 if batch(packet, ls_write):
                     # Got a new frame, return it and start another
@@ -136,7 +140,9 @@ def imu_data_to_imu_proto_payload(imu_data: dict):
     return payload
 
 
-def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id):
+def lidarscan_to_pointcloud_proto_payload(
+    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
+):
 
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
 
@@ -154,8 +160,7 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
-    near_ir = client.destagger(
-        info, lidar_scan.field(client.ChanField.NEAR_IR))
+    near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
     points = np.concatenate(
@@ -183,12 +188,9 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
     payload.pose.orientation.w = 1
 
     # Fields
-    payload.fields.add(name="x", offset=0,
-                       type=PackedElementField.NumericType.FLOAT64)
-    payload.fields.add(name="y", offset=8,
-                       type=PackedElementField.NumericType.FLOAT64)
-    payload.fields.add(name="z", offset=16,
-                       type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="x", offset=0, type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="y", offset=8, type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
 
     # payload.fields.add(
     #     name="signal", offset=24, type=PackedElementField.NumericType.UINT16
@@ -219,8 +221,10 @@ def lidarscan_to_pointcloud_proto_payload(lidar_scan: LidarScan, xyz_lut: client
 
 def sensor_config(query: zenoh.Queryable):
 
-    print(f">> [Queryable ] Received Query '{query.selector}'" + (
-        f" with value: {query.value.payload}" if query.value is not None else ""))
+    print(
+        f">> [Queryable ] Received Query '{query.selector}'"
+        + (f" with value: {query.value.payload}" if query.value is not None else "")
+    )
 
     query.replay(zenoh.Sample("key", b"response"))
 
@@ -277,15 +281,30 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         congestion_control=zenoh.CongestionControl.DROP(),
     )
 
-    query_get_config = session.declare_queryable(
-        query_config_key, sensor_config)
+    query_get_config = session.declare_queryable(query_config_key, sensor_config)
+
+    with closing(sensor.SensorScanSource(args.ouster_hostname)) as source:
+        metadata = source.metadata[0]
+        # print some useful info from metadata
+        print("Retrieved current metadata:")
+        print(f"  serial no:        {metadata.sn}")
+        print(f"  firmware version: {metadata.fw_rev}")
+        print(f"  product line:     {metadata.prod_line}")
+        print(f"  lidar mode:       {metadata.config.lidar_mode}")
 
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()
-    apply_config.azimuth_window = (args.view_angle_deg_start*1000, args.view_angle_deg_end*1000)
+    apply_config.azimuth_window = (
+        args.view_angle_deg_start * 1000,
+        args.view_angle_deg_end * 1000,
+    )
     apply_config.lidar_mode = client.LidarMode.from_string(args.lidar_mode)
-    apply_config.operating_mode = client.OperatingMode.from_string("NORMAL")  # Always set to normal mode to start up the lidar
-    client.set_config(args.ouster_hostname, apply_config, persist=True, udp_dest_auto=False)
+    apply_config.operating_mode = client.OperatingMode.from_string(
+        "NORMAL"
+    )  # Always set to normal mode to start up the lidar
+    client.set_config(
+        args.ouster_hostname, apply_config, persist=True, udp_dest_auto=False
+    )
 
     logging.info("Connecting to Ouster sensor...")
 
@@ -300,16 +319,14 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     if str(config.operating_mode.name) == "NORMAL":
         ConfigurationSensorPerception.mode_operating.Value("RUNNING")
     else:
-        ConfigurationSensorPerception.mode_operating.Value(
-            config.operating_mode.name)
+        ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
     payload.mode = config.lidar_mode.name
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(str(config))
 
-    horizontal = (config.azimuth_window[1] - config.azimuth_window[0])/1000
+    horizontal = (config.azimuth_window[1] - config.azimuth_window[0]) / 1000
     payload.view_horizontal_angel_deg = horizontal
-    payload.view_horizontal_start_angel_deg = config.azimuth_window[0]
-    payload.view_horizontal_end_angel_deg = config.azimuth_window[1]
+    payload.view_horizontal_start_angel_deg = config.azimuth_window[1]
 
     logging.info("Sensor configuration: \n %s", payload)
     serialized_payload = payload.SerializeToString()
@@ -320,45 +337,90 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     # Connecting to Ouster sensor
 
-    # with closing(client.SensorScanSource(hostname, lidar_port=lidar_port,
-    #                                  complete=False)) as stream:
-    config_os = client.SensorConfig()
-    config_os.udp_port_lidar = 7502
-    config_os.udp_port_imu = 7503
 
-    with closing(client.SensorPacketSource([(args.ouster_hostname, config_os)],
-                                           buf_size=640).single_source(0)) as stream:
+    ctr = 0
+    source = open_source(args.ouster_hostname,)
+    source_iter = iter(source)
+    for scan in source_iter:
+        print(scan.frame_id)
+        print(scan.timestamp)
+        print(scan)
 
-        # OLD
-        # with closing(
-        #     LidarPacketAndIMUPacketScans.stream(
-        #         args.ouster_hostname, config.udp_port_lidar, complete=True
-        #     )
-        # ) as stream:
+        ctr += 1
+        if ctr == 10:
+            break
+
+
+
+
+    with closing(
+        sensor.SensorScanSource(
+            args.ouster_hostname, lidar_port=7502, imu_port=7503, complete=True
+        ).single_source(0)
+    ) as stream:
+
+        metadata = stream.metadata
+        logging.info("Connected to sensor: %s", metadata)
 
         # Create a look-up table to cartesian projection
-        xyz_lut = client.XYZLut(stream.metadata)
+        xyzlut = client.XYZLut(metadata)
 
-        for imu_data, lidar_scan in stream:
-            if imu_data is not None:
-                payload = imu_data_to_imu_proto_payload(imu_data)
+        logging.debug("Connected to sensor!")
 
-                serialized_payload = payload.SerializeToString()
-                logging.debug("...serialized.")
 
-                envelope = keelson.enclose(serialized_payload)
-                imu_publisher.put(envelope)
-                logging.info("...published IMU to zenoh!")
 
-            if lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, xyz_lut, stream.metadata, args.frame_id
-                )
+        # for imu_data, lidar_scan in stream:
 
-                serialized_payload = payload.SerializeToString()
-                envelope = keelson.enclose(serialized_payload)
-                point_cloud_publisher.put(envelope)
-                logging.info("...published to zenoh!")
+        packet_format = client.PacketFormat(metadata)
+        logging.debug("Packet format: %s", packet_format)
+
+        for scan in stream:
+
+            logging.debug(f"Processing scan... {scan}")
+            # logging.debug(f"Processing imu... {imu}")
+
+
+            # if isinstance(scan, client.ImuPacket):
+            #         # and access ImuPacket content
+            #         logging.debug(f"Processing packet... {scan}")
+            #         ax = packet_format.imu_la_x(scan.buf)
+
+            # logging.debug(f"Processing packet... {scan}")
+         
+            # ranges = scan.field(client.ChanField.RANGE)
+            # logging.debug(f"Processing packet... {ranges}")
+
+            # reflectivity = scan.field(client.ChanField.REFLECTIVITY)
+            # logging.debug(f"Processing packet... {reflectivity}")
+
+            # signal = scan.field(client.ChanField.SIGNAL)
+            # logging.debug(f"Processing packet... {signal}")
+
+            # near_ir = scan.field(client.ChanField.NEAR_IR)
+            # logging.debug(f"Processing packet... {near_ir}")
+
+            # flags = scan.field(client.ChanField.FLAGS)
+            # logging.debug(f"Processing packet... {flags}")
+
+            # if imu_data is not None:
+            #     payload = imu_data_to_imu_proto_payload(imu_data)
+
+            #     serialized_payload = payload.SerializeToString()
+            #     logging.debug("...serialized.")
+
+            #     envelope = keelson.enclose(serialized_payload)
+            #     imu_publisher.put(envelope)
+            #     logging.info("...published IMU to zenoh!")
+
+            # if lidar_scan is not None:
+            #     payload = lidarscan_to_pointcloud_proto_payload(
+            #         lidar_scan, xyz_lut, stream.metadata, args.frame_id
+            #     )
+
+            #     serialized_payload = payload.SerializeToString()
+            #     envelope = keelson.enclose(serialized_payload)
+            #     point_cloud_publisher.put(envelope)
+            #     logging.info("...published to zenoh!")
 
 
 def from_pcap(session: zenoh.Session, args: argparse.Namespace):
@@ -414,15 +476,13 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 logging.debug("...serialized.")
 
                 envelope = keelson.enclose(serialized_payload)
-                logging.debug(
-                    "...enclosed into envelope, serialized as: %s", envelope)
+                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
 
                 imu_publisher.put(envelope)
                 logging.info("...published to zenoh!")
 
             elif lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, metadata)
+                payload = lidarscan_to_pointcloud_proto_payload(lidar_scan, metadata)
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")

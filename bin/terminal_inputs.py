@@ -58,7 +58,13 @@ def terminal_inputs():
     ## from_sensor subcommand
     from_sensor_parser = subparsers.add_parser("from_sensor")
 
-    from_sensor_parser.add_argument("-o", "--ouster-hostname", type=str, required=True)
+    from_sensor_parser.add_argument(
+        "-o",
+        "--ouster-hostname",
+        type=str,
+        help='Sensor hostname, e.g. "os-122033000087"',
+        required=True,
+    )
 
     from_sensor_parser.add_argument(
         "--view-angle-deg-start",

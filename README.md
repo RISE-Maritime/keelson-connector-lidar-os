@@ -17,7 +17,14 @@ Check device web server on devise IP address ex. [10.10.42.2](https://10.10.42.2
 
 ```bash
 # Unit IP 10.10.42.2 and log level debug=10
-python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 10.10.42.2 --view-angle-deg-start 0 --view-angle-deg-end 360 --lidar-mode 1024x10 
+
+
+python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname os-992109000253 --view-angle-deg-start 0 --view-angle-deg-end 360 --lidar-mode 1024x10 
+
+python3 bin/main.py  -r rise -e landkrabba -s lidar/os2/0 --log-level 10 from_sensor --ouster-hostname 192.168.1.80 --view-angle-deg-start 0 --view-angle-deg-end 360 --lidar-mode 1024x10 
+
+
+
 ```
 
 Tested units:
@@ -47,6 +54,13 @@ Setup for development environment on your own computer:
 
     # Start container and let it run in the background/detached (append -d) 
     docker-compose -f containing docker-compose.zenoh-router.yml up -d
+
+
+    # New OS pip 0.3.0 
+    sudo apt-get update
+
+   sudo apt-get install libgl1-mesa-glx
+
    ```
 
     [Link to --> docker-compose.zenoh-router.yml](docker-compose.zenoh-router.yml)
@@ -61,3 +75,33 @@ Setup for development environment on your own computer:
 
 [Zenoh CLI for debugging and problem solving](https://github.com/RISE-Maritime/zenoh-cli)
 
+
+
+
+python3 experiments/test.py os-992109000253.local record-pcap
+
+
+Ubuntu UFW Firewall may cause: No packets received within 1.0s
+
+On some Ubuntu setups we’ve observed the situations when everything is configured properly so that:
+
+sensor is seen on the network and its Web page can be reached
+
+sensor destination IP is set to the IP of the computer where data is expected
+
+sensor lidar port is known (i.e. default 7502, or some others)
+
+sensor is in RUNNING state
+
+sensor lidar packets traffic is seen on the expected machine and can be recorded with tcpdump -w command to a pcap file (or Wireshark tools)
+
+CLI command ouster-cli source <SENSOR HOSTNAME> {info,config} are working properly
+
+Viz ouster-cli source <PCAP FILE> viz from the tcpdump recorded pcap can be played and visualized
+
+But ouster-cli source <SENSOR HOSTNAME> viz, or ouster-cli source <SENSOR HOSTNAME> save still can’t receive any packets and get the following error:
+
+ouster.client.core.ClientTimeout: No packets received within 1.0s
+Please check your UFW Firewall settings and try to allow the UDP traffic for 7502 (or whatever the UDP Port Lidar is set on the sensor):
+
+sudo ufw allow 7502/udp

@@ -34,14 +34,15 @@ from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
 from keelson.payloads.Platform_pb2 import ConfigurationSensorPerception
 
-
 import terminal_inputs
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
 KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
 
+
 # We subclass client.ScansMulti and provide our own iterator interface
+
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
 
 
@@ -158,6 +159,16 @@ def lidarscan_to_pointcloud_proto_payload(
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
+
+    # Image displays correctly 
+    # reflectivity = (reflectivity / np.max(reflectivity) * 255).astype(np.uint8)
+    # cv2.imshow("scaled reflectivity", reflectivity)
+    # key = cv2.waitKey(1) & 0xFF
+
+    logging.debug("Reflectivity shape: %s", reflectivity.shape)
+    logging.debug("reflectivity type: %s", reflectivity.dtype)  # uint16
+    logging.debug("reflectivity: %s", reflectivity)
+
     near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
@@ -172,7 +183,10 @@ def lidarscan_to_pointcloud_proto_payload(
         axis=-1,
     )
 
-    points = xyz_destaggered.reshape(-1, points.shape[-1])
+    # points = xyz_destaggered.reshape(-1, points.shape[-1])
+    points = points.reshape(-1, points.shape[-1])
+
+    logging.debug("Points shape: %s", points)
 
     # Zero relative position
     payload.pose.position.x = 0
@@ -225,6 +239,7 @@ def sensor_config(query: zenoh.Queryable):
     )
 
     query.replay(zenoh.Sample("key", b"response"))
+
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
@@ -307,6 +322,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     client.set_config(
         args.ouster_hostname, apply_config, persist=True, udp_dest_auto=False
     )
+
 
     logging.info("Connecting to Ouster sensor...")
 

@@ -23,12 +23,14 @@ from ouster.sdk.client import (
     LidarPacket,
     ImuPacket,
     LidarScan,
+
 )
 import ouster.sdk.pcap as pcap
 from ouster.sdk import open_source
 from more_itertools import time_limited
 
 import keelson
+from datetime import datetime
 from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
@@ -44,81 +46,113 @@ KEELSON_SUBJECT_CONFIG = "configuration_perception_sensor"
 # We subclass client.ScansMulti and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
 
+def main():
+    args = terminal_inputs.terminal_inputs()
 
-class LidarPacketAndIMUPacketScans(client.Scans):
-    def __iter__(
-        self,
-    ) -> Iterator[Tuple[Optional[Dict[str, np.ndarray]], Optional[LidarScan]]]:
-        """Get an iterator, returning a tuple where either the LidarScan or ImuData is None, indicating which type of
-        packets is being returned."""
+    # Setup logger
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s [%(lineno)d]: %(message)s",level=args.log_level
+    )
+    logging.captureWarnings(True)
+    warnings.filterwarnings("once")
+    zenoh.init_log_from_env_or("error")
+    # Construct session
+    logging.info("Opening Zenoh session...")
+    conf = zenoh.Config()
 
-        w = self._source.metadata.format.columns_per_frame
-        h = self._source.metadata.format.pixels_per_column
-        columns_per_packet = self._source.metadata.format.columns_per_packet
-        packets_per_frame = w // columns_per_packet
-        column_window = self._source.metadata.format.column_window
+    if args.connect is not None:
+        conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps(args.connect))
+    session = zenoh.open(conf)
 
-        # If source is a sensor, make a type-specialized reference available
-        sensor = (
-            cast(Sensor, self._source) if isinstance(self._source, Sensor) else None
-        )
+    def _on_exit():
+        session.close()
 
-        ls_write = None
-        pf = client.PacketFormat.from_info(self._source.metadata)
-        batch = client.ScanBatcher(w, pf)
+    atexit.register(_on_exit)
 
-        # Time from which to measure timeout
-        start_ts = time.monotonic()
+    # Dispatch to correct function
+    try:
+        args.func(session, args)
+    except KeyboardInterrupt:
+        logging.info("Program ended due to user request (Ctrl-C)")
+        sys.exit(0)
 
-        it = iter(self._source)
-        self._packets_consumed = 0
-        self._scans_produced = 0
-        while True:
-            try:
-                packet = next(it)
-                self._packets_consumed += 1
-            except StopIteration:
-                if ls_write is not None:
-                    if not self._complete or ls_write.complete(column_window):
-                        yield None, ls_write
-                return
-            except ClientTimeout:
-                self._timed_out = True
-                return
 
-            if self._timeout is not None and (
-                time.monotonic() >= start_ts + self._timeout
-            ):
-                self._timed_out = True
-                return
+# class LidarPacketAndIMUPacketScans(client.Scans):
+#     def __iter__(
+#         self,
+#     ) -> Iterator[Tuple[Optional[Dict[str, np.ndarray]], Optional[LidarScan]]]:
+#         """Get an iterator, returning a tuple where either the LidarScan or ImuData is None, indicating which type of
+#         packets is being returned."""
 
-            if isinstance(packet, LidarPacket):
-                ls_write = ls_write or LidarScan(h, w, self._fields, columns_per_packet)
+#         w = self._source.metadata.format.columns_per_frame
+#         h = self._source.metadata.format.pixels_per_column
+#         columns_per_packet = self._source.metadata.format.columns_per_packet
+#         packets_per_frame = w // columns_per_packet
+#         column_window = self._source.metadata.format.column_window
 
-                if batch(packet, ls_write):
-                    # Got a new frame, return it and start another
-                    if not self._complete or ls_write.complete(column_window):
-                        yield None, ls_write
-                        self._scans_produced += 1
-                        start_ts = time.monotonic()
-                    ls_write = None
+#         # If source is a sensor, make a type-specialized reference available
+#         sensor = (
+#             cast(Sensor, self._source) if isinstance(
+#                 self._source, Sensor) else None
+#         )
 
-                    # Drop data along frame boundaries to maintain _max_latency and
-                    # clear out already-batched first packet of next frame
-                    if self._max_latency and sensor is not None:
-                        buf_frames = sensor.buf_use // packets_per_frame
-                        drop_frames = buf_frames - self._max_latency + 1
+#         ls_write = None
+#         pf = client.PacketFormat.from_info(self._source.metadata)
+#         batch = client.ScanBatcher(w, pf)
 
-                        if drop_frames > 0:
-                            sensor.flush(drop_frames)
-                            batch = client.ScanBatcher(w, pf)
+#         # Time from which to measure timeout
+#         start_ts = time.monotonic()
 
-            elif isinstance(packet, ImuPacket):
-                yield {
-                    "acceleration": packet.accel,
-                    "angular_velocity": packet.angular_vel,
-                    "capture_timestamp": packet.capture_timestamp,
-                }, None
+#         it = iter(self._source)
+#         self._packets_consumed = 0
+#         self._scans_produced = 0
+#         while True:
+#             try:
+#                 packet = next(it)
+#                 self._packets_consumed += 1
+#             except StopIteration:
+#                 if ls_write is not None:
+#                     if not self._complete or ls_write.complete(column_window):
+#                         yield None, ls_write
+#                 return
+#             except ClientTimeout:
+#                 self._timed_out = True
+#                 return
+
+#             if self._timeout is not None and (
+#                 time.monotonic() >= start_ts + self._timeout
+#             ):
+#                 self._timed_out = True
+#                 return
+
+#             if isinstance(packet, LidarPacket):
+#                 ls_write = ls_write or LidarScan(
+#                     h, w, self._fields, columns_per_packet)
+
+#                 if batch(packet, ls_write):
+#                     # Got a new frame, return it and start another
+#                     if not self._complete or ls_write.complete(column_window):
+#                         yield None, ls_write
+#                         self._scans_produced += 1
+#                         start_ts = time.monotonic()
+#                     ls_write = None
+
+#                     # Drop data along frame boundaries to maintain _max_latency and
+#                     # clear out already-batched first packet of next frame
+#                     if self._max_latency and sensor is not None:
+#                         buf_frames = sensor.buf_use // packets_per_frame
+#                         drop_frames = buf_frames - self._max_latency + 1
+
+#                         if drop_frames > 0:
+#                             sensor.flush(drop_frames)
+#                             batch = client.ScanBatcher(w, pf)
+
+#             elif isinstance(packet, ImuPacket):
+#                 yield {
+#                     "acceleration": packet.accel,
+#                     "angular_velocity": packet.angular_vel,
+#                     "capture_timestamp": packet.capture_timestamp,
+#                 }, None
 
 
 def imu_data_to_imu_proto_payload(imu_data: dict):
@@ -158,7 +192,8 @@ def lidarscan_to_pointcloud_proto_payload(
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
-    near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
+    near_ir = client.destagger(
+        info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
     points = np.concatenate(
@@ -186,9 +221,12 @@ def lidarscan_to_pointcloud_proto_payload(
     payload.pose.orientation.w = 1
 
     # Fields
-    payload.fields.add(name="x", offset=0, type=PackedElementField.NumericType.FLOAT64)
-    payload.fields.add(name="y", offset=8, type=PackedElementField.NumericType.FLOAT64)
-    payload.fields.add(name="z", offset=16, type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="x", offset=0,
+                       type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="y", offset=8,
+                       type=PackedElementField.NumericType.FLOAT64)
+    payload.fields.add(name="z", offset=16,
+                       type=PackedElementField.NumericType.FLOAT64)
 
     # payload.fields.add(
     #     name="signal", offset=24, type=PackedElementField.NumericType.UINT16
@@ -281,7 +319,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         congestion_control=zenoh.CongestionControl.DROP,
     )
 
-    query_get_config = session.declare_queryable(query_config_key, sensor_config)
+    query_get_config = session.declare_queryable(
+        query_config_key, sensor_config)
 
     with closing(sensor.SensorScanSource(args.ouster_hostname)) as source:
 
@@ -290,8 +329,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         logging.info(f"""Retrieved current metadata: \n
                     serial no:        {metadata.sn} \n
                     firmware version: {metadata.fw_rev} \n
-                    product line:     {metadata.prod_line}\n
-                    lidar mode:       {metadata.config.lidar_mode}\n
+                    product line:     {metadata.prod_line} \n
+                    lidar mode:       {metadata.config.lidar_mode} \n
                      """)
 
     logging.info("Apply configuration...")
@@ -321,7 +360,8 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     if str(config.operating_mode.name) == "NORMAL":
         ConfigurationSensorPerception.mode_operating.Value("RUNNING")
     else:
-        ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
+        ConfigurationSensorPerception.mode_operating.Value(
+            config.operating_mode.name)
     payload.mode = config.lidar_mode.name
     payload.timestamp.FromNanoseconds(ingress_timestamp)
     payload.other_json = json.dumps(str(config))
@@ -339,21 +379,17 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     # Connecting to Ouster sensor
 
+    # ctr = 0
+    # source = open_source(args.ouster_hostname)
+    # source_iter = iter(source)
+    # for scan in source_iter:
+    #     logging.info(f"frame_id: {scan.frame_id}")
+    #     logging.info(scan.timestamp)
+    #     logging.info(scan)
 
-    ctr = 0
-    source = open_source(args.ouster_hostname,)
-    source_iter = iter(source)
-    for scan in source_iter:
-        print(scan.frame_id)
-        print(scan.timestamp)
-        print(scan)
-
-        ctr += 1
-        if ctr == 10:
-            break
-
-
-
+    #     ctr += 1
+    #     if ctr == 10:
+    #         break
 
     with closing(
         sensor.SensorScanSource(
@@ -366,43 +402,75 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
         # Create a look-up table to cartesian projection
         xyzlut = client.XYZLut(metadata)
-
         logging.debug("Connected to sensor!")
 
-
-
-        # for imu_data, lidar_scan in stream:
-
+    
         packet_format = client.PacketFormat(metadata)
         logging.debug("Packet format: %s", packet_format)
 
         for scan in stream:
 
             logging.debug(f"Processing scan... {scan}")
-            # logging.debug(f"Processing imu... {imu}")
+
+            reflectivity = client.destagger(metadata, scan.field(client.ChanField.REFLECTIVITY))
+            logging.debug(f"Processing reflectivity... {reflectivity}")
+   
+            ranges = client.destagger(metadata, scan.field(client.ChanField.RANGE))
+            logging.debug(f"Processing ranges... {ranges}")
+
+            signal = client.destagger(metadata, scan.field(client.ChanField.SIGNAL))
+            logging.debug(f"Processing signal... {signal}")
+            
+            near_ir = client.destagger(metadata, scan.field(client.ChanField.NEAR_IR))
+            logging.debug(f"Processing near_ir... {near_ir}")
+            
+            flags = scan.field(client.ChanField.FLAGS)
+            logging.debug(f"Processing flags... {flags}")
+
+            
+        
+            payload = lidarscan_to_pointcloud_proto_payload(
+                scan, xyzlut, metadata, args.frame_id
+            )
+
+            serialized_payload = payload.SerializeToString()
+            envelope = keelson.enclose(serialized_payload)
+            point_cloud_publisher.put(envelope)
+            logging.info("...published to zenoh!")
 
 
-            # if isinstance(scan, client.ImuPacket):
-            #         # and access ImuPacket content
-            #         logging.debug(f"Processing packet... {scan}")
-            #         ax = packet_format.imu_la_x(scan.buf)
+  
+            imu_data = None
+            lidar_scan = None
 
-            # logging.debug(f"Processing packet... {scan}")
-         
-            # ranges = scan.field(client.ChanField.RANGE)
-            # logging.debug(f"Processing packet... {ranges}")
+            if isinstance(scan, client.ImuPacket):
+                logging.debug("IMU PACK: %s", scan)
+                imu_data = {
+                    "acceleration": scan.accel,
+                    "angular_velocity": scan.angular_vel,
+                    "capture_timestamp": scan.capture_timestamp,
+                }
+            
+            if isinstance(scan, client.ImuPacket):
+                    # and access ImuPacket content
+                    print(f'  acceleration = {packet.accel}')
+                    print(f'  angular_velocity = {packet.angular_vel}')
 
-            # reflectivity = scan.field(client.ChanField.REFLECTIVITY)
-            # logging.debug(f"Processing packet... {reflectivity}")
+            # if imu_data is not None:
+            #     payload = imu_data_to_imu_proto_payload(imu_data)
+            #     serialized_payload = payload.SerializeToString()
+            #     envelope = keelson.enclose(serialized_payload)
+            #     imu_publisher.put(envelope)
+            #     logging.info("...published IMU to zenoh!")
 
-            # signal = scan.field(client.ChanField.SIGNAL)
-            # logging.debug(f"Processing packet... {signal}")
-
-            # near_ir = scan.field(client.ChanField.NEAR_IR)
-            # logging.debug(f"Processing packet... {near_ir}")
-
-            # flags = scan.field(client.ChanField.FLAGS)
-            # logging.debug(f"Processing packet... {flags}")
+            # if lidar_scan is not None:
+            #     payload = lidarscan_to_pointcloud_proto_payload(
+            #         lidar_scan, xyzlut, stream.metadata, args.frame_id
+            #     )
+            #     serialized_payload = payload.SerializeToString()
+            #     envelope = keelson.enclose(serialized_payload)
+            #     point_cloud_publisher.put(envelope)
+            #     logging.info("...published to zenoh!")
 
             # if imu_data is not None:
             #     payload = imu_data_to_imu_proto_payload(imu_data)
@@ -414,16 +482,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
             #     imu_publisher.put(envelope)
             #     logging.info("...published IMU to zenoh!")
 
-            # if lidar_scan is not None:
-            #     payload = lidarscan_to_pointcloud_proto_payload(
-            #         lidar_scan, xyz_lut, stream.metadata, args.frame_id
-            #     )
-
-            #     serialized_payload = payload.SerializeToString()
-            #     envelope = keelson.enclose(serialized_payload)
-            #     point_cloud_publisher.put(envelope)
-            #     logging.info("...published to zenoh!")
-
+      
 
 def from_pcap(session: zenoh.Session, args: argparse.Namespace):
     point_cloud_key = keelson.construct_pub_sub_key(
@@ -478,13 +537,15 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 logging.debug("...serialized.")
 
                 envelope = keelson.enclose(serialized_payload)
-                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
+                logging.debug(
+                    "...enclosed into envelope, serialized as: %s", envelope)
 
                 imu_publisher.put(envelope)
                 logging.info("...published to zenoh!")
 
             elif lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(lidar_scan, metadata)
+                payload = lidarscan_to_pointcloud_proto_payload(
+                    lidar_scan, metadata)
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
@@ -497,32 +558,5 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
 
 
 if __name__ == "__main__":
+    main()
 
-    args = terminal_inputs.terminal_inputs()
-
-    # Setup logger
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s %(name)s %(message)s", level=args.log_level
-    )
-    logging.captureWarnings(True)
-    warnings.filterwarnings("once")
-
-    # Construct session
-    logging.info("Opening Zenoh session...")
-    conf = zenoh.Config()
-
-    if args.connect is not None:
-        conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps(args.connect))
-    session = zenoh.open(conf)
-
-    def _on_exit():
-        session.close()
-
-    atexit.register(_on_exit)
-
-    # Dispatch to correct function
-    try:
-        args.func(session, args)
-    except KeyboardInterrupt:
-        logging.info("Program ended due to user request (Ctrl-C)")
-        sys.exit(0)

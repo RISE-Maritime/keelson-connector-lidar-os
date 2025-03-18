@@ -32,9 +32,7 @@ import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
 from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
-from keelson.payloads.ConfigurationSensorPerception_pb2 import (
-    ConfigurationSensorPerception,
-)
+from keelson.payloads.Platform_pb2 import ConfigurationSensorPerception
 
 
 import terminal_inputs
@@ -230,32 +228,34 @@ def sensor_config(query: zenoh.Queryable):
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
-    point_cloud_key = keelson.construct_pub_sub_key(
+    point_cloud_key = keelson.construct_pubsub_key(
         realm=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_POINT_CLOUD,
         source_id=args.source_id,
     )
 
-    imu_key = keelson.construct_pub_sub_key(
+    imu_key = keelson.construct_pubsub_key(
         realm=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_IMU_READING,
         source_id=args.source_id,
     )
 
-    config_key = keelson.construct_pub_sub_key(
+    config_key = keelson.construct_pubsub_key(
         realm=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_CONFIG,
         source_id=args.source_id,
     )
 
-    query_config_key = keelson.construct_req_rep_key(
+    query_config_key = keelson.construct_rpc_key(
         realm=args.realm,
         entity_id=args.entity_id,
-        responder_id=args.source_id,
         procedure="sensor_config",
+        subject_in="sensor_config",
+        subject_out="sensor_config_response",
+        source_id=args.source_id
     )
 
     logging.info("PUB key: %s", imu_key)
@@ -265,32 +265,34 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     imu_publisher = session.declare_publisher(
         imu_key,
-        priority=zenoh.Priority.INTERACTIVE_HIGH(),
-        congestion_control=zenoh.CongestionControl.DROP(),
+        priority=zenoh.Priority.INTERACTIVE_HIGH,
+        congestion_control=zenoh.CongestionControl.DROP,
     )
 
     point_cloud_publisher = session.declare_publisher(
         point_cloud_key,
-        priority=zenoh.Priority.INTERACTIVE_HIGH(),
-        congestion_control=zenoh.CongestionControl.DROP(),
+        priority=zenoh.Priority.INTERACTIVE_HIGH,
+        congestion_control=zenoh.CongestionControl.DROP,
     )
 
     publisher_config = session.declare_publisher(
         config_key,
-        priority=zenoh.Priority.INTERACTIVE_HIGH(),
-        congestion_control=zenoh.CongestionControl.DROP(),
+        priority=zenoh.Priority.INTERACTIVE_HIGH,
+        congestion_control=zenoh.CongestionControl.DROP,
     )
 
     query_get_config = session.declare_queryable(query_config_key, sensor_config)
 
     with closing(sensor.SensorScanSource(args.ouster_hostname)) as source:
+
         metadata = source.metadata[0]
         # print some useful info from metadata
-        print("Retrieved current metadata:")
-        print(f"  serial no:        {metadata.sn}")
-        print(f"  firmware version: {metadata.fw_rev}")
-        print(f"  product line:     {metadata.prod_line}")
-        print(f"  lidar mode:       {metadata.config.lidar_mode}")
+        logging.info(f"""Retrieved current metadata: \n
+                    serial no:        {metadata.sn} \n
+                    firmware version: {metadata.fw_rev} \n
+                    product line:     {metadata.prod_line}\n
+                    lidar mode:       {metadata.config.lidar_mode}\n
+                     """)
 
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()

@@ -25,6 +25,7 @@ from keelson.payloads.PointCloud_pb2 import PointCloud
 from keelson.payloads.PackedElementField_pb2 import PackedElementField
 from keelson.payloads.Platform_pb2 import ConfigurationSensorPerception
 
+
 from ouster.sdk import pcap
 
 import terminal_inputs
@@ -155,6 +156,7 @@ def lidarscan_to_pointcloud_proto_payload(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
 
+
     # Image displays correctly 
     # reflectivity = (reflectivity / np.max(reflectivity) * 255).astype(np.uint8)
     # cv2.imshow("scaled reflectivity", reflectivity)
@@ -165,6 +167,7 @@ def lidarscan_to_pointcloud_proto_payload(
     logging.debug("reflectivity: %s", reflectivity)
 
     near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
+
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
     points = np.concatenate(
@@ -224,6 +227,7 @@ def sensor_config(query: zenoh.Queryable):
     )
 
     query.reply(zenoh.Sample("key", b"response"))
+
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
@@ -293,6 +297,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         "NORMAL"
     )  # Always set to normal mode to start up the lidar
     client.set_config(args.ouster_hostname, apply_config, persist=True)
+
 
     logging.info("Connecting to Ouster sensor...")
 

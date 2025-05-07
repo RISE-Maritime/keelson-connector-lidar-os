@@ -31,7 +31,7 @@ import terminal_inputs
 
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
-KEELSON_SUBJECT_IMU_READING = "imu"
+KEELSON_SUBJECT_IMU_READING = "imu_reading"
 KEELSON_SUBJECT_CONFIG = "sensor_config"
 
 

@@ -244,12 +244,12 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         source_id=args.source_id,
     )
 
-    config_key = keelson.construct_pubsub_key(
-        base_path=args.realm,
-        entity_id=args.entity_id,
-        subject=KEELSON_SUBJECT_CONFIG,
-        source_id=args.source_id,
-    )
+    # config_key = keelson.construct_pubsub_key(
+    #     base_path=args.realm,
+    #     entity_id=args.entity_id,
+    #     subject=KEELSON_SUBJECT_CONFIG,
+    #     source_id=args.source_id,
+    # )
 
     # TODO: CONFIGURATION
     # query_config_key = keelson.construct_rpc_key(
@@ -263,7 +263,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
     logging.info("PUB key: %s", imu_key)
     logging.info("PUB key: %s", point_cloud_key)
-    logging.info("PUB key: %s", config_key)
+    # logging.info("PUB key: %s", config_key)
     # logging.info("Query key: %s", query_config_key)
 
     imu_publisher = session.declare_publisher(
@@ -278,11 +278,11 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         congestion_control=zenoh.CongestionControl.DROP,
     )
 
-    publisher_config = session.declare_publisher(
-        config_key,
-        priority=zenoh.Priority.INTERACTIVE_HIGH,
-        congestion_control=zenoh.CongestionControl.DROP,
-    )
+    # publisher_config = session.declare_publisher(
+    #     config_key,
+    #     priority=zenoh.Priority.INTERACTIVE_HIGH,
+    #     congestion_control=zenoh.CongestionControl.DROP,
+    # )
 
     # query_get_config = session.declare_queryable(query_config_key, sensor_config)
 
@@ -304,9 +304,9 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
 
-    # logging.info(f"Sensor configuration:{config}")
+    logging.info(f"Sensor configuration:{config}")
 
-    # ingress_timestamp = time.time_ns()
+    ingress_timestamp = time.time_ns()
     # payload = ConfigurationSensorPerception()
     # ConfigurationSensorPerception.SensorType.Value("LIDAR")
     # if str(config.operating_mode.name) == "NORMAL":
@@ -343,8 +343,6 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
                 payload = imu_data_to_imu_proto_payload(imu_data)
 
                 serialized_payload = payload.SerializeToString()
-                logging.debug("...serialized.")
-
                 envelope = keelson.enclose(serialized_payload)
                 imu_publisher.put(envelope)
                 logging.info("...published IMU to zenoh!")
@@ -357,7 +355,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
                 serialized_payload = payload.SerializeToString()
                 envelope = keelson.enclose(serialized_payload)
                 point_cloud_publisher.put(envelope)
-                logging.info("...published to zenoh!")
+                logging.info("...published LIDAR to zenoh!")
 
 
 def from_pcap(session: zenoh.Session, args: argparse.Namespace):

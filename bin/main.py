@@ -21,9 +21,8 @@ from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, Lid
 
 import keelson
 from keelson.payloads.ImuReading_pb2 import ImuReading
-from keelson.payloads.PointCloud_pb2 import PointCloud
-from keelson.payloads.PackedElementField_pb2 import PackedElementField
-from keelson.payloads.Platform_pb2 import ConfigurationSensorPerception
+from keelson.payloads.foxglove.PointCloud_pb2 import PointCloud
+from keelson.payloads.foxglove.PackedElementField_pb2 import PackedElementField
 
 
 from ouster.sdk import pcap
@@ -232,39 +231,40 @@ def sensor_config(query: zenoh.Queryable):
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     point_cloud_key = keelson.construct_pubsub_key(
-        realm=args.realm,
+        base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_POINT_CLOUD,
         source_id=args.source_id,
     )
 
     imu_key = keelson.construct_pubsub_key(
-        realm=args.realm,
+        base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_IMU_READING,
         source_id=args.source_id,
     )
 
     config_key = keelson.construct_pubsub_key(
-        realm=args.realm,
+        base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_CONFIG,
         source_id=args.source_id,
     )
 
-    query_config_key = keelson.construct_rpc_key(
-        realm=args.realm,
-        entity_id=args.entity_id,
-        procedure="sensor_config",
-        subject_in="sensor_config",
-        subject_out="sensor_config_response",
-        source_id=args.source_id
-    )
+    # TODO: CONFIGURATION
+    # query_config_key = keelson.construct_rpc_key(
+    #     base_path=args.realm,
+    #     entity_id=args.entity_id,
+    #     procedure="sensor_config",
+    #     subject_in="sensor_config",
+    #     subject_out="sensor_config_response",
+    #     source_id=args.source_id
+    # )
 
     logging.info("PUB key: %s", imu_key)
     logging.info("PUB key: %s", point_cloud_key)
     logging.info("PUB key: %s", config_key)
-    logging.info("Query key: %s", query_config_key)
+    # logging.info("Query key: %s", query_config_key)
 
     imu_publisher = session.declare_publisher(
         imu_key,
@@ -284,7 +284,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         congestion_control=zenoh.CongestionControl.DROP,
     )
 
-    query_get_config = session.declare_queryable(query_config_key, sensor_config)
+    # query_get_config = session.declare_queryable(query_config_key, sensor_config)
 
     logging.info("Apply configuration...")
     apply_config = client.SensorConfig()
@@ -304,28 +304,28 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     # Connect with the Ouster sensor and start processing lidar scans
     config = client.get_config(args.ouster_hostname)
 
-    logging.info(f"Sensor configuration:{config}")
+    # logging.info(f"Sensor configuration:{config}")
 
-    ingress_timestamp = time.time_ns()
-    payload = ConfigurationSensorPerception()
-    ConfigurationSensorPerception.SensorType.Value("LIDAR")
-    if str(config.operating_mode.name) == "NORMAL":
-        ConfigurationSensorPerception.mode_operating.Value("RUNNING")
-    else:
-        ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
-    payload.mode = config.lidar_mode.name
-    payload.timestamp.FromNanoseconds(ingress_timestamp)
-    payload.other_json = json.dumps(str(config))
+    # ingress_timestamp = time.time_ns()
+    # payload = ConfigurationSensorPerception()
+    # ConfigurationSensorPerception.SensorType.Value("LIDAR")
+    # if str(config.operating_mode.name) == "NORMAL":
+    #     ConfigurationSensorPerception.mode_operating.Value("RUNNING")
+    # else:
+    #     ConfigurationSensorPerception.mode_operating.Value(config.operating_mode.name)
+    # payload.mode = config.lidar_mode.name
+    # payload.timestamp.FromNanoseconds(ingress_timestamp)
+    # payload.other_json = json.dumps(str(config))
 
-    horizontal = (config.azimuth_window[1] - config.azimuth_window[0]) / 1000
-    payload.view_horizontal_angel_deg = horizontal
-    payload.view_horizontal_start_angel_deg = config.azimuth_window[0]
-    payload.view_horizontal_end_angel_deg = config.azimuth_window[1]
+    # horizontal = (config.azimuth_window[1] - config.azimuth_window[0]) / 1000
+    # payload.view_horizontal_angel_deg = horizontal
+    # payload.view_horizontal_start_angel_deg = config.azimuth_window[0]
+    # payload.view_horizontal_end_angel_deg = config.azimuth_window[1]
 
-    logging.info("Sensor configuration: \n %s", payload)
-    serialized_payload = payload.SerializeToString()
-    envelope = keelson.enclose(serialized_payload)
-    publisher_config.put(envelope)
+    # logging.info("Sensor configuration: \n %s", payload)
+    # serialized_payload = payload.SerializeToString()
+    # envelope = keelson.enclose(serialized_payload)
+    # publisher_config.put(envelope)
 
     logging.info("Processing packages!")
 

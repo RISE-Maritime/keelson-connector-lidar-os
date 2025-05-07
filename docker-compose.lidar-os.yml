@@ -1,8 +1,8 @@
 services:
 
   keelson-connector-lidar-os:
-    # build: .
-    image: ghcr.io/rise-maritime/keelson-connector-lidar-os:0.0.3
+    build: .
+    # image: ghcr.io/rise-maritime/keelson-connector-lidar-os:0.0.3
     container_name: keelson-connector-lidar-os
     restart: unless-stopped
     network_mode: "host"

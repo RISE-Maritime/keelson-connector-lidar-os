@@ -29,6 +29,7 @@ from ouster.sdk import pcap
 
 import terminal_inputs
 
+args = terminal_inputs.terminal_inputs()
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
@@ -437,7 +438,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
 
 if __name__ == "__main__":
 
-    args = terminal_inputs.terminal_inputs()
+    
 
     # Setup logger
     logging.basicConfig(

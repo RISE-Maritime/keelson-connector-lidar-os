@@ -113,12 +113,12 @@ class LidarPacketAndIMUPacketScans(client.Scans):
                 }, None
 
 
-def imu_data_to_imu_proto_payload(imu_data: dict, args):
+def imu_data_to_imu_proto_payload(imu_data: dict, frame_id):
 
     payload = ImuReading()
 
-    if args.frame_id is not None:
-        payload.frame_id = args.frame_id
+    if frame_id is not None:
+        payload.frame_id = frame_id
 
     payload.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
 

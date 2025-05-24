@@ -117,6 +117,9 @@ def imu_data_to_imu_proto_payload(imu_data: dict):
 
     payload = ImuReading()
 
+    if args.frame_id is not None:
+        payload.frame_id = args.frame_id
+
     payload.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
 
     payload.linear_acceleration.x = imu_data["acceleration"][0]
@@ -137,6 +140,9 @@ def lidarscan_to_pointcloud_proto_payload(
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
 
     payload = PointCloud()
+    
+    if args.frame_id is None:
+        payload.frame_id = args.frame_id
 
     payload.timestamp.FromNanoseconds(int(lidar_scan.timestamp[0]))
     if frame_id is not None:

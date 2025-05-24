@@ -355,7 +355,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
             if lidar_scan is not None:
                 payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, xyz_lut, stream.metadata, args.frame_id
+                    lidar_scan, xyz_lut, stream.metadata, args
                 )
 
                 serialized_payload = payload.SerializeToString()
@@ -411,7 +411,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
             # TODO: We need to account for the timestamps and send the messages back in "real-time" not fast-time
 
             if imu_data is not None:
-                payload = imu_data_to_imu_proto_payload(imu_data)
+                payload = imu_data_to_imu_proto_payload(imu_data, args)
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
@@ -423,7 +423,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 logging.info("...published to zenoh!")
 
             elif lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(lidar_scan, metadata)
+                payload = lidarscan_to_pointcloud_proto_payload(lidar_scan, metadata,args)
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")

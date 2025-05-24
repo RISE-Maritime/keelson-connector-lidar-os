@@ -141,8 +141,8 @@ def lidarscan_to_pointcloud_proto_payload(
 
     payload = PointCloud()
 
-    if args.frame_id is None:
-        payload.frame_id = args.frame_id
+    if frame_id is None:
+        payload.frame_id = frame_id
 
     payload.timestamp.FromNanoseconds(int(lidar_scan.timestamp[0]))
     if frame_id is not None:

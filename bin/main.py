@@ -134,13 +134,13 @@ def imu_data_to_imu_proto_payload(imu_data: dict, args):
 
 
 def lidarscan_to_pointcloud_proto_payload(
-    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id, args
+    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
 ):
 
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
 
     payload = PointCloud()
-    
+
     if args.frame_id is None:
         payload.frame_id = args.frame_id
 
@@ -161,8 +161,7 @@ def lidarscan_to_pointcloud_proto_payload(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
 
-
-    # Image displays correctly 
+    # Image displays correctly
     # reflectivity = (reflectivity / np.max(reflectivity) * 255).astype(np.uint8)
     # cv2.imshow("scaled reflectivity", reflectivity)
     # key = cv2.waitKey(1) & 0xFF
@@ -172,7 +171,6 @@ def lidarscan_to_pointcloud_proto_payload(
     logging.debug("reflectivity: %s", reflectivity)
 
     near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
-
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
     points = np.concatenate(
@@ -232,7 +230,6 @@ def sensor_config(query: zenoh.Queryable):
     )
 
     query.reply(zenoh.Sample("key", b"response"))
-
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
@@ -304,7 +301,6 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     )  # Always set to normal mode to start up the lidar
     client.set_config(args.ouster_hostname, apply_config, persist=True)
 
-
     logging.info("Connecting to Ouster sensor...")
 
     # Connect with the Ouster sensor and start processing lidar scans
@@ -355,7 +351,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
             if lidar_scan is not None:
                 payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, xyz_lut, stream.metadata, args
+                    lidar_scan, xyz_lut, stream.metadata, args.frame_id
                 )
 
                 serialized_payload = payload.SerializeToString()
@@ -423,7 +419,9 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 logging.info("...published to zenoh!")
 
             elif lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(lidar_scan, metadata,args)
+                payload = lidarscan_to_pointcloud_proto_payload(
+                    lidar_scan, metadata, args.frame_id
+                )
 
                 serialized_payload = payload.SerializeToString()
                 logging.debug("...serialized.")
@@ -465,8 +463,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logging.info("Program ended due to user request (Ctrl-C)")
         sys.exit(0)
-
-
-
-
-    

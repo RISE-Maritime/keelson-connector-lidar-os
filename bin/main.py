@@ -29,7 +29,6 @@ from ouster.sdk import pcap
 
 import terminal_inputs
 
-args = terminal_inputs.terminal_inputs()
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
 KEELSON_SUBJECT_IMU_READING = "imu_reading"
@@ -114,7 +113,7 @@ class LidarPacketAndIMUPacketScans(client.Scans):
                 }, None
 
 
-def imu_data_to_imu_proto_payload(imu_data: dict):
+def imu_data_to_imu_proto_payload(imu_data: dict, args):
 
     payload = ImuReading()
 
@@ -135,7 +134,7 @@ def imu_data_to_imu_proto_payload(imu_data: dict):
 
 
 def lidarscan_to_pointcloud_proto_payload(
-    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
+    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id, args
 ):
 
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
@@ -347,7 +346,7 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
         for imu_data, lidar_scan in stream:
             if imu_data is not None:
-                payload = imu_data_to_imu_proto_payload(imu_data)
+                payload = imu_data_to_imu_proto_payload(imu_data, args)
 
                 serialized_payload = payload.SerializeToString()
                 envelope = keelson.enclose(serialized_payload)
@@ -438,7 +437,7 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
 
 if __name__ == "__main__":
 
-    
+    args = terminal_inputs.terminal_inputs()
 
     # Setup logger
     logging.basicConfig(

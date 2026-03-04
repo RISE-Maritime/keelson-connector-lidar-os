@@ -21,7 +21,7 @@ from ouster.sdk.client import _client
 from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
 
 import keelson
-from keelson.payloads.foxglove.Vector3_pb2 import Vector3
+from keelson.payloads.Decomposed3DVector_pb2 import Decomposed3DVector
 from keelson.payloads.foxglove.PointCloud_pb2 import PointCloud
 from keelson.payloads.foxglove.PackedElementField_pb2 import PackedElementField
 
@@ -119,8 +119,8 @@ class LidarPacketAndIMUPacketScans(client.Scans):
 
 def imu_data_to_imu_proto_payload(imu_data: dict, args):
 
-    payload_acc = Vector3()
-    payload_ang = Vector3()
+    payload_acc = Decomposed3DVector()
+    payload_ang = Decomposed3DVector()
 
     # if frame_id is not None:
     #     payload.frame_id = args.frame_id
@@ -128,13 +128,13 @@ def imu_data_to_imu_proto_payload(imu_data: dict, args):
     payload_acc.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
     payload_ang.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
 
-    payload_acc.x = imu_data["acceleration"][0]*G2MPSS
-    payload_acc.y = imu_data["acceleration"][1]*G2MPSS
-    payload_acc.z = imu_data["acceleration"][2]*G2MPSS
+    payload_acc.vector.x = imu_data["acceleration"][0]*G2MPSS
+    payload_acc.vector.y = imu_data["acceleration"][1]*G2MPSS
+    payload_acc.vector.z = imu_data["acceleration"][2]*G2MPSS
 
-    payload_ang.x = imu_data["angular_velocity"][0]*DEG2RAD
-    payload_ang.y = imu_data["angular_velocity"][1]*DEG2RAD
-    payload_ang.z = imu_data["angular_velocity"][2]*DEG2RAD
+    payload_ang.vector.x = imu_data["angular_velocity"][0]*DEG2RAD
+    payload_ang.vector.y = imu_data["angular_velocity"][1]*DEG2RAD
+    payload_ang.vector.z = imu_data["angular_velocity"][2]*DEG2RAD
 
     return payload_acc, payload_ang
 

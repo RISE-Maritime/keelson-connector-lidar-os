@@ -12,6 +12,7 @@ import argparse
 import warnings
 from contextlib import closing
 from typing import cast, Iterator, Tuple, Optional, Dict
+import math
 
 import zenoh
 import numpy as np
@@ -20,7 +21,8 @@ from ouster.sdk.client import _client
 from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
 
 import keelson
-from keelson.payloads.ImuReading_pb2 import ImuReading
+from keelson.payloads.linear_acceleration_mpss_pb2 import linear_acceleration_mpss
+from keelson.payloads.angular_velocity_radps_pb2 import angular_velocity_radps
 from keelson.payloads.foxglove.PointCloud_pb2 import PointCloud
 from keelson.payloads.foxglove.PackedElementField_pb2 import PackedElementField
 
@@ -31,9 +33,12 @@ import terminal_inputs
 
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
-KEELSON_SUBJECT_IMU_READING = "imu_reading"
+KEELSON_SUBJECT_ACC = "linear_acceleration_mpss"
+KEELSON_SUBJECT_ANG = "angular_velocity_radps"
 KEELSON_SUBJECT_CONFIG = "sensor_config"
 
+G2MPSS = 9.80665
+DEG2RAD = 0.01745 # Hardvalue instead of pi/180. 
 
 # We subclass client.Scans and provide our own iterator interface
 # This is necessary to extract both the LidarScans and the IMU packets from the same packet source
@@ -115,22 +120,26 @@ class LidarPacketAndIMUPacketScans(client.Scans):
 
 def imu_data_to_imu_proto_payload(imu_data: dict, args):
 
-    payload = ImuReading()
+    payload_acc = linear_acceleration_mpss()
+    payload_ang = angular_velocity_radps()
+
+
 
     # if frame_id is not None:
     #     payload.frame_id = args.frame_id
 
-    payload.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
+    payload_acc.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
+    payload_ang.timestamp.FromNanoseconds(int(imu_data["capture_timestamp"] * 1e9))
 
-    payload.linear_acceleration.x = imu_data["acceleration"][0]
-    payload.linear_acceleration.y = imu_data["acceleration"][1]
-    payload.linear_acceleration.z = imu_data["acceleration"][2]
+    payload_acc.x = imu_data["acceleration"][0]*G2MPSS
+    payload_acc.y = imu_data["acceleration"][1]*G2MPSS
+    payload_acc.z = imu_data["acceleration"][2]*G2MPSS
 
-    payload.angular_velocity.x = imu_data["angular_velocity"][0]
-    payload.angular_velocity.y = imu_data["angular_velocity"][1]
-    payload.angular_velocity.z = imu_data["angular_velocity"][2]
+    payload_ang.x = imu_data["angular_velocity"][0]*DEG2RAD
+    payload_ang.y = imu_data["angular_velocity"][1]*DEG2RAD
+    payload_ang.z = imu_data["angular_velocity"][2]*DEG2RAD
 
-    return payload
+    return payload_acc, payload_ang
 
 
 def lidarscan_to_pointcloud_proto_payload(
@@ -240,10 +249,17 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         source_id=args.source_id,
     )
 
-    imu_key = keelson.construct_pubsub_key(
+    imu_key_acc = keelson.construct_pubsub_key(
         base_path=args.realm,
         entity_id=args.entity_id,
-        subject=KEELSON_SUBJECT_IMU_READING,
+        subject=KEELSON_SUBJECT_ACC,
+        source_id=args.source_id,
+    )
+
+    imu_key_ang = keelson.construct_pubsub_key(
+        base_path=args.realm,
+        entity_id=args.entity_id,
+        subject=KEELSON_SUBJECT_ANG,
         source_id=args.source_id,
     )
 
@@ -264,13 +280,19 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     #     source_id=args.source_id
     # )
 
-    logging.info("PUB key: %s", imu_key)
+    logging.info("PUB key: %s, %s", imu_key_acc, imu_key_ang)
     logging.info("PUB key: %s", point_cloud_key)
     # logging.info("PUB key: %s", config_key)
     # logging.info("Query key: %s", query_config_key)
 
-    imu_publisher = session.declare_publisher(
-        imu_key,
+    imu_publisher_acc = session.declare_publisher(
+        imu_key_acc,
+        priority=zenoh.Priority.INTERACTIVE_HIGH,
+        congestion_control=zenoh.CongestionControl.DROP,
+    )
+
+    imu_publisher_ang = session.declare_publisher(
+        imu_key_ang,
         priority=zenoh.Priority.INTERACTIVE_HIGH,
         congestion_control=zenoh.CongestionControl.DROP,
     )
@@ -342,11 +364,16 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
 
         for imu_data, lidar_scan in stream:
             if imu_data is not None:
-                payload = imu_data_to_imu_proto_payload(imu_data, args)
+                payload_acc, payload_ang = imu_data_to_imu_proto_payload(imu_data, args)
 
-                serialized_payload = payload.SerializeToString()
+                serialized_payload = payload_acc.SerializeToString()
                 envelope = keelson.enclose(serialized_payload)
-                imu_publisher.put(envelope)
+                imu_publisher_acc.put(envelope)
+
+                serialized_payload = payload_ang.SerializeToString()
+                envelope = keelson.enclose(serialized_payload)
+                imu_publisher_ang.put(envelope)
+
                 logging.info("...published IMU to zenoh!")
 
             if lidar_scan is not None:
@@ -368,18 +395,31 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
         source_id=args.source_id,
     )
 
-    imu_key = keelson.construct_pub_sub_key(
+    imu_key_acc = keelson.construct_pub_sub_key(
         realm=args.realm,
         entity_id=args.entity_id,
-        subject=KEELSON_SUBJECT_IMU_READING,
+        subject=KEELSON_SUBJECT_ACC,
         source_id=args.source_id,
     )
 
-    logging.info("IMU key: %s", imu_key)
+    imu_key_ang = keelson.construct_pub_sub_key(
+        realm=args.realm,
+        entity_id=args.entity_id,
+        subject=KEELSON_SUBJECT_ANG,
+        source_id=args.source_id,
+    )
+
+    logging.info("IMU key: %s, %s", imu_key_acc, imu_key_ang)
     logging.info("PointCloud key: %s", point_cloud_key)
 
-    imu_publisher = session.declare_publisher(
-        imu_key,
+    imu_publisher_acc = session.declare_publisher(
+        imu_key_acc,
+        priority=zenoh.Priority.INTERACTIVE_HIGH(),
+        congestion_control=zenoh.CongestionControl.DROP(),
+    )
+
+    imu_publisher_ang = session.declare_publisher(
+        imu_key_ang,
         priority=zenoh.Priority.INTERACTIVE_HIGH(),
         congestion_control=zenoh.CongestionControl.DROP(),
     )
@@ -407,18 +447,27 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
             # TODO: We need to account for the timestamps and send the messages back in "real-time" not fast-time
 
             if imu_data is not None:
-                payload = imu_data_to_imu_proto_payload(imu_data, args)
+                payload_acc, payload_ang = imu_data_to_imu_proto_payload(imu_data, args)
 
-                serialized_payload = payload.SerializeToString()
+                serialized_payload = payload_acc.SerializeToString()
                 logging.debug("...serialized.")
 
                 envelope = keelson.enclose(serialized_payload)
                 logging.debug("...enclosed into envelope, serialized as: %s", envelope)
 
-                imu_publisher.put(envelope)
+                imu_publisher_acc.put(envelope)
+
+                serialized_payload = payload_ang.SerializeToString()
+                logging.debug("...serialized.")
+
+                envelope = keelson.enclose(serialized_payload)
+                logging.debug("...enclosed into envelope, serialized as: %s", envelope)
+
+                imu_publisher_ang.put(envelope)
+
                 logging.info("...published to zenoh!")
 
-            elif lidar_scan is not None:
+            if lidar_scan is not None:
                 payload = lidarscan_to_pointcloud_proto_payload(
                     lidar_scan, metadata, args.frame_id
                 )

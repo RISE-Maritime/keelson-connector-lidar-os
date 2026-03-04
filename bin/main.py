@@ -21,8 +21,7 @@ from ouster.sdk.client import _client
 from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
 
 import keelson
-from keelson.payloads.linear_acceleration_mpss_pb2 import linear_acceleration_mpss
-from keelson.payloads.angular_velocity_radps_pb2 import angular_velocity_radps
+from keelson.payloads.foxglove.Vector3_pb2 import Vector3
 from keelson.payloads.foxglove.PointCloud_pb2 import PointCloud
 from keelson.payloads.foxglove.PackedElementField_pb2 import PackedElementField
 
@@ -120,10 +119,8 @@ class LidarPacketAndIMUPacketScans(client.Scans):
 
 def imu_data_to_imu_proto_payload(imu_data: dict, args):
 
-    payload_acc = linear_acceleration_mpss()
-    payload_ang = angular_velocity_radps()
-
-
+    payload_acc = Vector3()
+    payload_ang = Vector3()
 
     # if frame_id is not None:
     #     payload.frame_id = args.frame_id

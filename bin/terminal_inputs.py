@@ -52,6 +52,23 @@ def terminal_inputs():
         "-f", "--frame-id", type=str, default=None, help="Frame id for foxglow"
     )
 
+    parser.add_argument(
+        "--point-cloud-format",
+        type=str,
+        default="both",
+        choices=["raw", "compressed", "both"],
+        help="Which point cloud topics to publish: raw (foxglove.PointCloud), "
+        "compressed (Draco foxglove.CompressedPointCloud), or both",
+    )
+
+    parser.add_argument(
+        "--decimate",
+        type=int,
+        default=1,
+        help="Keep every Nth point in the COMPRESSED point cloud topic only "
+        "(the raw topic stays full resolution). 1 = no decimation",
+    )
+
     ## Subcommands
     subparsers = parser.add_subparsers(required=True)
 

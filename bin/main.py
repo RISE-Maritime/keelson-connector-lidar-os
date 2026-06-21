@@ -16,6 +16,7 @@ import math
 
 import zenoh
 import numpy as np
+import DracoPy
 from ouster.sdk import client
 from ouster.sdk.client import _client
 from ouster.sdk.client import ClientTimeout, Sensor, LidarPacket, ImuPacket, LidarScan
@@ -24,6 +25,7 @@ import keelson
 from keelson.payloads.Decomposed3DVector_pb2 import Decomposed3DVector
 from keelson.payloads.foxglove.PointCloud_pb2 import PointCloud
 from keelson.payloads.foxglove.PackedElementField_pb2 import PackedElementField
+from keelson.payloads.foxglove.CompressedPointCloud_pb2 import CompressedPointCloud
 
 
 from ouster.sdk import pcap
@@ -32,6 +34,7 @@ import terminal_inputs
 
 
 KEELSON_SUBJECT_POINT_CLOUD = "point_cloud"
+KEELSON_SUBJECT_POINT_CLOUD_COMPRESSED = "point_cloud_compressed"
 KEELSON_SUBJECT_ACC = "linear_acceleration_mpss"
 KEELSON_SUBJECT_ANG = "angular_velocity_radps"
 KEELSON_SUBJECT_CONFIG = "sensor_config"
@@ -139,50 +142,25 @@ def imu_data_to_imu_proto_payload(imu_data: dict, args):
     return payload_acc, payload_ang
 
 
-def lidarscan_to_pointcloud_proto_payload(
-    lidar_scan: LidarScan, xyz_lut: client.XYZLut, info, frame_id
-):
+def lidarscan_to_points(lidar_scan: LidarScan, xyz_lut: client.XYZLut, info):
+    """Destagger an Ouster scan into an (N, 6) float64 array of
+    [x, y, z, signal, reflectivity, near_ir] points. Shared by the raw
+    (foxglove.PointCloud) and compressed (Draco) payload builders."""
 
     logging.debug("Processing lidar scan with timestamp: %s", lidar_scan)
 
-    payload = PointCloud()
-
-    if frame_id is None:
-        payload.frame_id = frame_id
-
-    payload.timestamp.FromNanoseconds(int(lidar_scan.timestamp[0]))
-    if frame_id is not None:
-        payload.frame_id = frame_id
-
     # Destagger data
     xyz_destaggered = client.destagger(info, xyz_lut(lidar_scan))
-
     signal = client.destagger(info, lidar_scan.field(client.ChanField.SIGNAL))
-
-    logging.debug("Signal shape: %s", signal.shape)
-    logging.debug("Signal type: %s", signal.dtype)  # uint16
-    logging.debug("Signal: %s", signal)
-
     reflectivity = client.destagger(
         info, lidar_scan.field(client.ChanField.REFLECTIVITY)
     )
-
-    # Image displays correctly
-    # reflectivity = (reflectivity / np.max(reflectivity) * 255).astype(np.uint8)
-    # cv2.imshow("scaled reflectivity", reflectivity)
-    # key = cv2.waitKey(1) & 0xFF
-
-    logging.debug("Reflectivity shape: %s", reflectivity.shape)
-    logging.debug("reflectivity type: %s", reflectivity.dtype)  # uint16
-    logging.debug("reflectivity: %s", reflectivity)
-
     near_ir = client.destagger(info, lidar_scan.field(client.ChanField.NEAR_IR))
 
     # Points as [[x, y, z, signal, reflectivity, near_ir], ...]
     points = np.concatenate(
         [
             xyz_destaggered,
-            # signal,
             signal.reshape(list(signal.shape) + [1]),
             reflectivity.reshape(list(reflectivity.shape) + [1]),
             near_ir.reshape(list(near_ir.shape) + [1]),
@@ -190,20 +168,21 @@ def lidarscan_to_pointcloud_proto_payload(
         axis=-1,
     )
 
-    # points = xyz_destaggered.reshape(-1, points.shape[-1])
     points = points.reshape(-1, points.shape[-1])
+    logging.debug("Points shape: %s", points.shape)
+    return points
 
-    logging.debug("Points shape: %s", points)
 
-    # Zero relative position
-    payload.pose.position.x = 0
-    payload.pose.position.y = 0
-    payload.pose.position.z = 0
+def points_to_pointcloud_proto_payload(points: np.ndarray, lidar_scan: LidarScan, frame_id):
+    """Build an uncompressed foxglove.PointCloud (float64 fields) from an (N, 6) points array."""
 
-    # Identity quaternion
-    payload.pose.orientation.x = 0
-    payload.pose.orientation.y = 0
-    payload.pose.orientation.z = 0
+    payload = PointCloud()
+
+    payload.timestamp.FromNanoseconds(int(lidar_scan.timestamp[0]))
+    if frame_id is not None:
+        payload.frame_id = frame_id
+
+    # Identity pose (sensor-relative)
     payload.pose.orientation.w = 1
 
     # Fields
@@ -228,6 +207,36 @@ def lidarscan_to_pointcloud_proto_payload(
     return payload
 
 
+def points_to_compressed_proto_payload(points: np.ndarray, lidar_scan: LidarScan, args):
+    """Build a Draco-compressed foxglove.CompressedPointCloud from an (N, 6) points array,
+    decimating to every Nth point for browser-friendly bandwidth. POSITION is encoded as
+    3-component float32; signal/reflectivity/near_ir ride along as named generic attributes
+    (string keys so Foxglove recovers the field names)."""
+
+    decimate = max(1, args.decimate)
+    pts = points[::decimate]
+
+    payload = CompressedPointCloud()
+    payload.timestamp.FromNanoseconds(int(lidar_scan.timestamp[0]))
+    if args.frame_id is not None:
+        payload.frame_id = args.frame_id
+    payload.pose.orientation.w = 1  # identity pose (sensor-relative)
+    payload.format = "draco"
+    payload.data = DracoPy.encode(
+        pts[:, :3].astype(np.float32),
+        quantization_bits=14,
+        compression_level=7,
+        preserve_order=True,
+        generic_attributes={
+            "signal": pts[:, 3].astype(np.float32).reshape(-1, 1),
+            "reflectivity": pts[:, 4].astype(np.float32).reshape(-1, 1),
+            "near_ir": pts[:, 5].astype(np.float32).reshape(-1, 1),
+        },
+    )
+
+    return payload
+
+
 def sensor_config(query: zenoh.Queryable):
 
     print(
@@ -239,10 +248,20 @@ def sensor_config(query: zenoh.Queryable):
 
 
 def from_sensor(session: zenoh.Session, args: argparse.Namespace):
+    publish_raw = args.point_cloud_format in ("raw", "both")
+    publish_compressed = args.point_cloud_format in ("compressed", "both")
+
     point_cloud_key = keelson.construct_pubsub_key(
         base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_POINT_CLOUD,
+        source_id=args.source_id,
+    )
+
+    point_cloud_compressed_key = keelson.construct_pubsub_key(
+        base_path=args.realm,
+        entity_id=args.entity_id,
+        subject=KEELSON_SUBJECT_POINT_CLOUD_COMPRESSED,
         source_id=args.source_id,
     )
 
@@ -278,7 +297,10 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
     # )
 
     logging.info("PUB key: %s, %s", imu_key_acc, imu_key_ang)
-    logging.info("PUB key: %s", point_cloud_key)
+    if publish_raw:
+        logging.info("PUB key: %s", point_cloud_key)
+    if publish_compressed:
+        logging.info("PUB key: %s (decimate=%s)", point_cloud_compressed_key, args.decimate)
     # logging.info("PUB key: %s", config_key)
     # logging.info("Query key: %s", query_config_key)
 
@@ -294,10 +316,24 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
         congestion_control=zenoh.CongestionControl.DROP,
     )
 
-    point_cloud_publisher = session.declare_publisher(
-        point_cloud_key,
-        priority=zenoh.Priority.INTERACTIVE_HIGH,
-        congestion_control=zenoh.CongestionControl.DROP,
+    point_cloud_publisher = (
+        session.declare_publisher(
+            point_cloud_key,
+            priority=zenoh.Priority.INTERACTIVE_HIGH,
+            congestion_control=zenoh.CongestionControl.DROP,
+        )
+        if publish_raw
+        else None
+    )
+
+    point_cloud_compressed_publisher = (
+        session.declare_publisher(
+            point_cloud_compressed_key,
+            priority=zenoh.Priority.INTERACTIVE_HIGH,
+            congestion_control=zenoh.CongestionControl.DROP,
+        )
+        if publish_compressed
+        else None
     )
 
     # publisher_config = session.declare_publisher(
@@ -374,57 +410,95 @@ def from_sensor(session: zenoh.Session, args: argparse.Namespace):
                 logging.info("...published IMU to zenoh!")
 
             if lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, xyz_lut, stream.metadata, args.frame_id
-                )
+                points = lidarscan_to_points(lidar_scan, xyz_lut, stream.metadata)
 
-                serialized_payload = payload.SerializeToString()
-                envelope = keelson.enclose(serialized_payload)
-                point_cloud_publisher.put(envelope)
-                logging.info("...published LIDAR to zenoh!")
+                if point_cloud_publisher is not None:
+                    payload = points_to_pointcloud_proto_payload(
+                        points, lidar_scan, args.frame_id
+                    )
+                    point_cloud_publisher.put(
+                        keelson.enclose(payload.SerializeToString())
+                    )
+                    logging.info("...published LIDAR to zenoh!")
+
+                if point_cloud_compressed_publisher is not None:
+                    payload = points_to_compressed_proto_payload(
+                        points, lidar_scan, args
+                    )
+                    point_cloud_compressed_publisher.put(
+                        keelson.enclose(payload.SerializeToString())
+                    )
+                    logging.info("...published compressed LIDAR to zenoh!")
 
 
 def from_pcap(session: zenoh.Session, args: argparse.Namespace):
-    point_cloud_key = keelson.construct_pub_sub_key(
-        realm=args.realm,
+    publish_raw = args.point_cloud_format in ("raw", "both")
+    publish_compressed = args.point_cloud_format in ("compressed", "both")
+
+    point_cloud_key = keelson.construct_pubsub_key(
+        base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_POINT_CLOUD,
         source_id=args.source_id,
     )
 
-    imu_key_acc = keelson.construct_pub_sub_key(
-        realm=args.realm,
+    point_cloud_compressed_key = keelson.construct_pubsub_key(
+        base_path=args.realm,
+        entity_id=args.entity_id,
+        subject=KEELSON_SUBJECT_POINT_CLOUD_COMPRESSED,
+        source_id=args.source_id,
+    )
+
+    imu_key_acc = keelson.construct_pubsub_key(
+        base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_ACC,
         source_id=args.source_id,
     )
 
-    imu_key_ang = keelson.construct_pub_sub_key(
-        realm=args.realm,
+    imu_key_ang = keelson.construct_pubsub_key(
+        base_path=args.realm,
         entity_id=args.entity_id,
         subject=KEELSON_SUBJECT_ANG,
         source_id=args.source_id,
     )
 
     logging.info("IMU key: %s, %s", imu_key_acc, imu_key_ang)
-    logging.info("PointCloud key: %s", point_cloud_key)
+    if publish_raw:
+        logging.info("PointCloud key: %s", point_cloud_key)
+    if publish_compressed:
+        logging.info("PointCloud compressed key: %s (decimate=%s)", point_cloud_compressed_key, args.decimate)
 
     imu_publisher_acc = session.declare_publisher(
         imu_key_acc,
-        priority=zenoh.Priority.INTERACTIVE_HIGH(),
-        congestion_control=zenoh.CongestionControl.DROP(),
+        priority=zenoh.Priority.INTERACTIVE_HIGH,
+        congestion_control=zenoh.CongestionControl.DROP,
     )
 
     imu_publisher_ang = session.declare_publisher(
         imu_key_ang,
-        priority=zenoh.Priority.INTERACTIVE_HIGH(),
-        congestion_control=zenoh.CongestionControl.DROP(),
+        priority=zenoh.Priority.INTERACTIVE_HIGH,
+        congestion_control=zenoh.CongestionControl.DROP,
     )
 
-    point_cloud_publisher = session.declare_publisher(
-        point_cloud_key,
-        priority=zenoh.Priority.INTERACTIVE_HIGH(),
-        congestion_control=zenoh.CongestionControl.DROP(),
+    point_cloud_publisher = (
+        session.declare_publisher(
+            point_cloud_key,
+            priority=zenoh.Priority.INTERACTIVE_HIGH,
+            congestion_control=zenoh.CongestionControl.DROP,
+        )
+        if publish_raw
+        else None
+    )
+
+    point_cloud_compressed_publisher = (
+        session.declare_publisher(
+            point_cloud_compressed_key,
+            priority=zenoh.Priority.INTERACTIVE_HIGH,
+            congestion_control=zenoh.CongestionControl.DROP,
+        )
+        if publish_compressed
+        else None
     )
 
     logging.info("Reading files...")
@@ -435,6 +509,8 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
 
     pcap_source = pcap.Pcap(args.pcap_file, metadata)
     logging.info("Loaded pcap file: %s", args.pcap_file)
+
+    xyz_lut = client.XYZLut(metadata)
 
     scans = LidarPacketAndIMUPacketScans(source=pcap_source)
     logging.info("Created scans generator for %s", args.pcap_file)
@@ -465,15 +541,25 @@ def from_pcap(session: zenoh.Session, args: argparse.Namespace):
                 logging.info("...published to zenoh!")
 
             if lidar_scan is not None:
-                payload = lidarscan_to_pointcloud_proto_payload(
-                    lidar_scan, metadata, args.frame_id
-                )
+                points = lidarscan_to_points(lidar_scan, xyz_lut, metadata)
 
-                serialized_payload = payload.SerializeToString()
-                logging.debug("...serialized.")
-                envelope = keelson.enclose(serialized_payload)
-                point_cloud_publisher.put(envelope)
-                logging.info("...published to zenoh!")
+                if point_cloud_publisher is not None:
+                    payload = points_to_pointcloud_proto_payload(
+                        points, lidar_scan, args.frame_id
+                    )
+                    point_cloud_publisher.put(
+                        keelson.enclose(payload.SerializeToString())
+                    )
+                    logging.info("...published LIDAR to zenoh!")
+
+                if point_cloud_compressed_publisher is not None:
+                    payload = points_to_compressed_proto_payload(
+                        points, lidar_scan, args
+                    )
+                    point_cloud_compressed_publisher.put(
+                        keelson.enclose(payload.SerializeToString())
+                    )
+                    logging.info("...published compressed LIDAR to zenoh!")
 
     except ClientTimeout:
         logging.info("Timeout occurred while waiting for packets.")
